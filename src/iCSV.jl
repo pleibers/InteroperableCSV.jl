@@ -9,7 +9,7 @@ module iCSV
  
  export ICSVBase, ICSV2DTimeseries
  export MetaDataSection, FieldsSection, Geometry, Loc
- export readicsv, writeicsv, append_timepoint
+ export read, write, append_timepoint
  export todataframe, todimarray
  
  const VERSIONS = ["1.0"]

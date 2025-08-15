@@ -21,9 +21,9 @@ using DimensionalData
     fields_section = FieldsSection(fields...)
     geometry = Geometry(metadata["geometry"], metadata["srid"])
     f = ICSVBase(meta_section, fields_section, geometry,data)
-    iCSV.writeicsv(f, file)
+    iCSV.write(f, file)
 
-    g = iCSV.readicsv(file)
+    g = iCSV.read(file)
     @test g isa ICSVBase
     @test size(iCSV.todataframe(g)) == size(df)
     @test names(iCSV.todataframe(g)) == names(df)
@@ -37,6 +37,89 @@ using DimensionalData
 
     A = iCSV.todimarray(g)
     @test size(A) == (nrow(df), 2) # drop timestamp column
+end
+
+@testset "ICSV 2DTIMESERIES edge cases" begin
+    tmp = mktempdir()
+    function write_manual_timeseries(path::AbstractString; meta=Dict("field_delimiter"=>",","geometry"=>"POINT(1 2)","srid"=>"EPSG:2056"), fields::AbstractString="a,b", body_lines::Vector{String})
+        open(path, "w") do io
+            println(io, iCSV.FIRSTLINES_2DTIMESERIES[end])
+            println(io, "# [METADATA]")
+            for (k,v) in meta
+                println(io, "# $(k) = $(v)")
+            end
+            println(io, "# [FIELDS]")
+            println(io, "# fields = $(fields)")
+            println(io, "# [DATA]")
+            for ln in body_lines
+                println(io, ln)
+            end
+        end
+        return path
+    end
+
+    # 1) Comments before first [DATE] are allowed
+    file1 = joinpath(tmp, "ok_comment_before_date.icsv")
+    body1 = [
+        "# a comment before first date",
+        "[DATE=2024-01-01T00:00:00]",
+        "1,2",
+        "3,4",
+    ]
+    write_manual_timeseries(file1; fields="a,b", body_lines=body1)
+    q1 = iCSV.read(file1)
+    @test q1 isa iCSV.ICSV2DTimeseries
+    @test length(q1.dates) == 1
+    @test names(q1.data[q1.dates[1]]) == [:a,:b]
+    @test all(q1.data[q1.dates[1]][!, :a] .== [1,3])
+    @test all(q1.data[q1.dates[1]][!, :b] .== [2,4])
+
+    # 2) Comment inside a data block (after a [DATE]) should error
+    file2 = joinpath(tmp, "bad_comment_inside_block.icsv")
+    body2 = [
+        "[DATE=2024-01-01T00:00:00]",
+        "1,2",
+        "# this should not be here",
+        "3,4",
+    ]
+    write_manual_timeseries(file2; fields="a,b", body_lines=body2)
+    @test_throws ArgumentError iCSV.read(file2)
+
+    # 3) Blank lines inside blocks are ignored
+    file3 = joinpath(tmp, "blank_lines_ok.icsv")
+    body3 = [
+        "[DATE=2024-01-01T00:00:00]",
+        "",
+        "1,2",
+        "",
+        "3,4",
+        "",
+        "[DATE=2024-01-02T00:00:00]",
+        "5,6",
+        "",
+    ]
+    write_manual_timeseries(file3; fields="a,b", body_lines=body3)
+    q3 = iCSV.read(file3)
+    @test length(q3.dates) == 2
+    @test nrow(q3.data[q3.dates[1]]) == 2
+    @test nrow(q3.data[q3.dates[2]]) == 1
+
+    # 4) Missing [DATE] marker should error
+    file4 = joinpath(tmp, "missing_date.icsv")
+    body4 = [
+        "1,2",
+    ]
+    write_manual_timeseries(file4; fields="a,b", body_lines=body4)
+    @test_throws ArgumentError iCSV.read(file4)
+
+    # 5) Column mismatch should error
+    file5 = joinpath(tmp, "mismatch_columns.icsv")
+    body5 = [
+        "[DATE=2024-01-01T00:00:00]",
+        "1,2",
+    ]
+    write_manual_timeseries(file5; fields="a,b,c", body_lines=body5)
+    @test_throws ArgumentError iCSV.read(file5)
 end
 
 @testset "Enhanced DimArray options" begin
@@ -117,9 +200,9 @@ end
     fields_section = FieldsSection(fields...)
     geometry = Geometry(metadata["geometry"], metadata["srid"])
     p = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1, df2], [d1,d2])
-    iCSV.writeicsv(p, file)
+    iCSV.write(p, file)
 
-    q = iCSV.readicsv(file)
+    q = iCSV.read(file)
     @test q isa ICSV2DTimeseries
     @test length(q.dates) == 2
     A = iCSV.todimarray(q)
@@ -132,6 +215,6 @@ end
     d3 = DateTime(2024,1,3,10)
     df3 = DataFrame(layer_index = 1:3, var1 = [2.0,3.0,4.0], var2 = [12.0, 22.0, 32.0])
     iCSV.append_timepoint(file, d3, df3; field_delimiter=",")
-    r = iCSV.readicsv(file)
+    r = iCSV.read(file)
     @test length(r.dates) == 3
 end
