@@ -11,13 +11,18 @@ using DimensionalData
     ts = [DateTime(2024,1,1) + Day(i-1) for i in 1:5]
     df = DataFrame(timestamp = ts, a = 1:5, b = 6:10)
 
-    f = ICSVBase()
-    iCSV.set_attribute!(f.metadata, "field_delimiter", ",")
-    iCSV.set_attribute!(f.metadata, "geometry", "POINTZ(7 8 9)")
-    iCSV.set_attribute!(f.metadata, "srid", "EPSG:2056")
-    iCSV.setdata!(f, df)
-
+    metadata = Dict{String, String}()
+    metadata["field_delimiter"] = ","
+    metadata["geometry"] = "POINTZ(7 8 9)"
+    metadata["srid"] = "EPSG:2056"
+    fields = Dict{String, String}()
+    fields["fields"] = "timestamp,a,b"
+    meta_section = MetaDataSection(metadata...)
+    fields_section = FieldsSection(fields...)
+    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    f = ICSVBase(meta_section, fields_section, geometry,data)
     iCSV.writeicsv(f, file)
+
     g = iCSV.readicsv(file)
     @test g isa ICSVBase
     @test size(iCSV.todataframe(g)) == size(df)
@@ -27,7 +32,7 @@ using DimensionalData
     @test all(g.data.b .== df.b)
     @test all(g.data.timestamp .== df.timestamp)
 
-    loc = iCSV.get_location(g.geometry)
+    loc = g.geolocation.location
     @test loc.x == 7.0 && loc.y == 8.0 && loc.z == 9.0 && loc.epsg == 2056
 
     A = iCSV.todimarray(g)
@@ -40,11 +45,16 @@ end
     d2 = DateTime(2024,1,2,10)
     df1 = DataFrame(var1 = [1.0,2.0,3.0], var2 = [10.0,20.0,30.0])
     df2 = DataFrame(var1 = [1.5,2.5,3.5], var2 = [15.0,25.0,35.0])
-    p = ICSV2DTimeseries()
-    iCSV.set_attribute!(p.metadata, "field_delimiter", ",")
-    iCSV.set_attribute!(p.fields, "fields", ["var1","var2"])
-    iCSV.setdata!(p, d1, df1)
-    iCSV.setdata!(p, d2, df2)
+    metadata = Dict{String, String}()
+    metadata["field_delimiter"] = ","
+    metadata["geometry"] = "POINTZ(7 8 9)"
+    metadata["srid"] = "EPSG:2056"
+    fields = Dict{String, String}()
+    fields["fields"] = "var1,var2"
+    meta_section = MetaDataSection(metadata...)
+    fields_section = FieldsSection(fields...)
+    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    p = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1, df2], [d1,d2])
     A = iCSV.todimarray(p)
     @test size(A) == (3, 2, 2)
     @test DimensionalData.dims(A)[1] isa DimensionalData.Y
@@ -55,11 +65,16 @@ end
     # drop_non_numeric flag behavior for 2DTIMESERIES
     df1b = DataFrame(layer_index=1:3, num=[1,2,3], str=["a","b","c"])
     df2b = DataFrame(layer_index=1:3, num=[2,3,4], str=["d","e","f"])
-    p2 = ICSV2DTimeseries()
-    iCSV.set_attribute!(p2.metadata, "field_delimiter", ",")
-    iCSV.set_attribute!(p2.fields, "fields", ["layer_index","num","str"])
-    iCSV.setdata!(p2, d1, df1b)
-    iCSV.setdata!(p2, d2, df2b)
+    metadata = Dict{String, String}()
+    metadata["field_delimiter"] = ","
+    metadata["geometry"] = "POINTZ(7 8 9)"
+    metadata["srid"] = "EPSG:2056"
+    fields = Dict{String, String}()
+    fields["fields"] = "layer_index,num,str"
+    meta_section = MetaDataSection(metadata...)
+    fields_section = FieldsSection(fields...)
+    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    p2 = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1b, df2b], [d1,d2])
     A3 = iCSV.todimarray(p2) # default drop_non_numeric=true
     @test size(A3) == (3, 1, 2) # only numeric field kept
     A4 = iCSV.todimarray(p2; drop_non_numeric=false)
@@ -68,9 +83,16 @@ end
     # drop_non_numeric for ICSVBase
     ts = [DateTime(2024,1,1) + Day(i-1) for i in 1:3]
     dff = DataFrame(timestamp = ts, a = [1,2,3], s = ["x","y","z"])
-    f = ICSVBase()
-    iCSV.set_attribute!(f.metadata, "field_delimiter", ",")
-    iCSV.setdata!(f, dff)
+    metadata = Dict{String, String}()
+    metadata["field_delimiter"] = ","
+    metadata["geometry"] = "POINTZ(7 8 9)"
+    metadata["srid"] = "EPSG:2056"
+    fields = Dict{String, String}()
+    fields["fields"] = "timestamp,a,s"
+    meta_section = MetaDataSection(metadata...)
+    fields_section = FieldsSection(fields...)
+    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    f = ICSVBase(meta_section, fields_section, geometry,dff)
     A5 = iCSV.todimarray(f) # drop non-numeric
     @test size(A5) == (3, 1)
     A6 = iCSV.todimarray(f; drop_non_numeric=false)
@@ -85,13 +107,16 @@ end
     df1 = DataFrame(layer_index = 1:3, var1 = [1.0,2.0,3.0], var2 = [10.0, 20.0, 30.0])
     df2 = DataFrame(layer_index = 1:3, var1 = [1.5,2.5,3.5], var2 = [15.0, 25.0, 35.0])
 
-    p = ICSV2DTimeseries()
-    iCSV.set_attribute!(p.metadata, "field_delimiter", ",")
-    iCSV.set_attribute!(p.metadata, "geometry", "POINT(600000 200000)")
-    iCSV.set_attribute!(p.metadata, "srid", "EPSG:2056")
-    iCSV.set_attribute!(p.fields, "fields", ["layer_index","var1","var2"])
-    iCSV.setdata!(p, d1, df1)
-    iCSV.setdata!(p, d2, df2)
+    metadata = Dict{String, String}()
+    metadata["field_delimiter"] = ","
+    metadata["geometry"] = "POINT(600000 200000)"
+    metadata["srid"] = "EPSG:2056"
+    fields = Dict{String, String}()
+    fields["fields"] = "layer_index,var1,var2"
+    meta_section = MetaDataSection(metadata...)
+    fields_section = FieldsSection(fields...)
+    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    p = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1, df2], [d1,d2])
     iCSV.writeicsv(p, file)
 
     q = iCSV.readicsv(file)

@@ -157,22 +157,28 @@ end
 
 
 # ------------------------ Read from file -----------------------
-# TODO: Read the correct parts of the file instead of writing to a buffer?
-function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat=ISODateFormat)
+function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat = dateformat"yyyy-mm-ddTHH:MM:SS")
+    # Outputs
     data = Dict{DateTime,DataFrame}()
     dates = DateTime[]
-    # We'll collect data blocks per date
-    blocks = Dict{DateTime, Vector{String}}()
-    current_date = nothing
+
+    # Header and section parsing state
     section = ""
     metadata = Dict{String, Any}()
     fields = Dict{String, Any}()
     geometry = nothing
     meta_section = nothing
     fields_section = nothing
+
+    # Pre-scan: gather dates and number of data rows per date block; validate no comments inside blocks
+    block_lengths = Int[]
+    in_block = false
+    current_len = 0
+    saw_data_section = false
+
     open(filename, "r") do io
         first_line = rstrip(readline(io))
-        first_line in FIRSTLINES_2DTIMESERIES || throw(ArgumentError("Not an iCSV file with the 2D timeseries application profile"))
+        first_line in FIRSTLINES_2DTIMESERIES || throw(ArgumentError("Not an iCSV file with the 2D TIMESERIES application profile"))
         for rawline in eachline(io)
             if startswith(rawline, "#")
                 line = strip(rawline[2:end])
@@ -184,35 +190,63 @@ function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat=ISO
                     geometry = Geometry(metadata["geometry"], metadata["srid"])
                     meta_section = MetaDataSection(metadata...)
                     _parse_fields_section_line!(fields, meta_section, line)
-                elseif section == "data" && startswith(line, "[DATE=")
-                    date_str = split(split(line, "[DATE=")[2], "]")[1]
-                    push!(f.dates, DateTime(date_str, date_fmt))
-                    current_date = f.dates[end]
-                    blocks[current_date] = String[]
+                elseif section == "data"
+                    saw_data_section = true
+                    if startswith(line, "[DATE=")
+                        # close previous block
+                        if in_block
+                            push!(block_lengths, current_len)
+                            current_len = 0
+                        end
+                        date_str = split(split(line, "[DATE=")[2], "]")[1]
+                        push!(dates, DateTime(date_str, date_fmt))
+                        in_block = true
+                    else
+                        # comment encountered inside data section: only [DATE=...] markers are allowed
+                        in_block && throw(ArgumentError("Comments inside a data block are not allowed (only [DATE=...] markers). Offending line: $(rawline)"))
+                        # allow comments before the first [DATE=...] within the data section
+                    end
                 end
             else
-                section == "data" || throw(ArgumentError("Data section was not specified"))
-                fields_section = FieldsSection(fields...)
-                current_date === nothing && throw(ArgumentError("No [DATE=...] marker before data lines"))
-                push!(blocks[current_date], rawline)
+                if section == "data"
+                    in_block || throw(ArgumentError("No [DATE=...] marker before data lines"))
+                    # count only non-empty lines to match CSV ignoreemptyrows behavior
+                    !isempty(strip(rawline)) && (current_len += 1)
+                else
+                    throw(ArgumentError("Data section was not specified"))
+                end
             end
         end
     end
-    # Build DataFrames for each date block
-    delim = meta_section.field_delimiter
-    for d in f.dates
-        lines = get(blocks, d, String[])
-        buf = IOBuffer()
-        for ln in lines
-            println(buf, ln)
-        end
-        seekstart(buf)
-        df = DataFrame(CSV.File(buf; header=false, delim=delim))
-        rename!(df, Symbol.(f.fields.fields))
-        f.data[d] = df
+
+    # Finalize header sections and block bookkeeping
+    fields_section = FieldsSection(fields...)
+    meta_section === nothing && throw(ArgumentError("Missing [METADATA]/[FIELDS] sections"))
+    saw_data_section || throw(ArgumentError("Missing [DATA] section"))
+    if in_block
+        push!(block_lengths, current_len)
     end
-    # sanity checks and geometry
-    isempty(f.dates) && throw(ArgumentError("No dates found in 2DTIMESERIES file"))
-    check_validity(f.fields, size(f.data[f.dates[1]], 2))
+    isempty(dates) && throw(ArgumentError("No [DATE=...] markers found in 2DTIMESERIES file"))
+
+    # Single CSV pass over whole file; comments skipped
+    delim_str = String(get_attribute(meta_section, "field_delimiter"))
+    delim = isempty(delim_str) ? ',' : delim_str[1]
+    df_all = DataFrame(CSV.File(filename; header=false, comment='#', delim=delim, ignoreemptyrows=true, threaded=true, reusebuffer=true))
+
+    total_rows = sum(block_lengths)
+    nrow(df_all) == total_rows || throw(ArgumentError("Data row count mismatch: expected $(total_rows) rows across $(length(dates)) dates, got $(nrow(df_all))"))
+
+    # Validate and set column names; also parse timestamp/time columns
+    check_validity(fields_section, size(df_all, 2))
+    _update_columns!(df_all, fields_section)
+
+    # Split df_all into per-date DataFrames by cumulative row counts
+    offsets = cumsum([0; block_lengths[1:end-1]])
+    for (i, d) in enumerate(dates)
+        r1 = offsets[i] + 1
+        r2 = offsets[i] + block_lengths[i]
+        @views data[d] = DataFrame(df_all[r1:r2, :])
+    end
+
     return ICSV2DTimeseries(meta_section, fields_section, geometry, data, dates)
 end
