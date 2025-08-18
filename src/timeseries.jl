@@ -1,5 +1,27 @@
 # 2D Timeseries application profile
 
+"""
+    ICSV2DTimeseries(metadata::MetaDataSection, fields::FieldsSection, geolocation::Geometry,
+                      data::Dict{DateTime,DataFrame}, dates::Vector{DateTime}; out_datefmt=dateformat"yyyy-mm-ddTHH:MM:SS")
+
+In-memory representation of the iCSV 2DTIMESERIES application profile.
+
+Format
+- First line must match [`FIRSTLINES_2DTIMESERIES`](@ref), e.g. `"# iCSV 1.0 UTF-8 2DTIMESERIES"`.
+- Header sections `[METADATA]` and `[FIELDS]` as in the standard profile.
+- Data section `[DATA]` is split into blocks marked by `# [DATE=yyyy-mm-ddTHH:MM:SS]`.
+- Each date block contains a full table with the same schema.
+
+Components
+- `metadata` → [`MetaDataSection`](@ref)
+- `fields` → [`FieldsSection`](@ref)
+- `geolocation` → [`Geometry`](@ref)
+- `data` maps each `DateTime` to a `DataFrame` of rows for that timestamp.
+
+See also: [`write(::ICSV2DTimeseries, ...)`](@ref), [`append_timepoint`](@ref), [`todataframe(::ICSV2DTimeseries)`](@ref), [`todimarray(::ICSV2DTimeseries)`](@ref).
+
+Convenience constructor accepting `Vector{DataFrame}` and matching `Vector{DateTime}` is also provided.
+"""
 @kwdef struct ICSV2DTimeseries{M <: MetaDataSection, G <: Geometry}
     metadata::M
     fields::FieldsSection
@@ -9,10 +31,31 @@
     out_datefmt::DateFormat = dateformat"yyyy-mm-ddTHH:MM:SS"
 end
 
+function ICSV2DTimeseries(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
+                           dfs::Vector{DataFrame}, dates::Vector{DateTime})
+    length(dfs) == length(dates) || throw(ArgumentError("Number of data frames and dates must match"))
+    d = Dict{DateTime,DataFrame}()
+    for (i, dt) in enumerate(dates)
+        d[dt] = dfs[i]
+    end
+    return ICSV2DTimeseries(meta, fields, geom, d, collect(dates))
+end
+
 function Base.show(io::IO, f::ICSV2DTimeseries)
     print(io, "2D Timeseries\n$(f.metadata)\n$(f.fields)\n$(f.geolocation)")
 end
 
+"""
+    write(f::ICSV2DTimeseries, filename) -> filename
+
+Write a 2DTIMESERIES iCSV file. Emits:
+- First line from [`FIRSTLINES_2DTIMESERIES`](@ref)
+- `# [METADATA]` from [`metadata(f.metadata)`](@ref metadata)
+- `# [FIELDS]` from [`all_fields(f.fields)`](@ref all_fields)
+- `# [DATA]` followed by, for each `d in f.dates`:
+  - `# [DATE=...]` using `f.out_datefmt`
+  - CSV rows of `f.data[d]` delimited by `f.metadata.field_delimiter`
+"""
 function write(f::ICSV2DTimeseries, filename::AbstractString)
     first_key = first(f.dates)
     check_validity(f.fields, size(f.data[first_key], 2))
@@ -37,6 +80,17 @@ function write(f::ICSV2DTimeseries, filename::AbstractString)
     return filename
 end
 
+"""
+    append_timepoint(filename, timestamp::DateTime, data::DataFrame; field_delimiter=",", date_format=dateformat"yyyy-mm-ddTHH:MM:SS")
+
+Append a new `[DATE=...]` block and rows to an existing 2DTIMESERIES file.
+Assumes the header has already been written and that `data` matches the declared fields.
+
+Notes
+- `field_delimiter` must match `[METADATA].field_delimiter` of the target file.
+- `date_format` controls how the `[DATE=...]` marker is rendered; default is ISO-like.
+- This function does not validate column count or types against the file header.
+"""
 function append_timepoint(filename::AbstractString, timestamp::DateTime, data::DataFrame; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS")
     open(filename, "a") do io
         println(io, "# [DATE=$(Dates.format(timestamp, date_format))]")
@@ -49,6 +103,14 @@ end
 
 # conversions ---------------------------------------------------------------
 
+"""
+    todataframe(f::ICSV2DTimeseries) -> DataFrame
+
+Return a long-form `DataFrame` with declared field names and an added `:time` column.
+- Attaches file-level metadata via `DataFrames.metadata!(..., :icsv_metadata, ...)` from [`metadata`](@ref).
+- Propagates per-column attributes via `DataFrames.colmetadata!` for matching-length vectors; see [`miscellaneous_fields`](@ref).
+See also: [`ICSVBase.todataframe`](@ref).
+"""
 function todataframe(f::ICSV2DTimeseries)
     # Long form: set declared field names, add :time, then vcat
     dfs = DataFrame[]
@@ -65,19 +127,32 @@ function todataframe(f::ICSV2DTimeseries)
     end
     out = vcat(dfs...; cols = :union)
     # Attach file-level metadata
-    DataFrames.metadata!(out, :icsv_metadata, metadata(f.metadata); style = :note)
+    for (k,v) in metadata(f.metadata)
+        DataFrames.metadata!(out, String(k), v)
+    end
     # Attach per-column field metadata (recommended/other fields) to data columns only
     misc = miscellaneous_fields(f.fields)
     ncols_data = length(f.fields.fields)
     for (attr, vals) in misc
         length(vals) == ncols_data || continue
         for (i, name) in enumerate(f.fields.fields)
-            DataFrames.colmetadata!(out, Symbol(name), attr, vals[i]; style = :note)
+            DataFrames.colmetadata!(out, name, String(attr), vals[i]; style = :note)
         end
     end
     return out
 end
 
+"""
+    todimarray(f::ICSV2DTimeseries; rowdim=DimensionalData.X, coldim=Dim{:field}, idxcol=nothing, drop_non_numeric=true) -> DimArray
+
+Convert to a 3D `DimensionalData.DimArray` with dimensions `(layer, field, time)`.
+
+- `idxcol` — optional per-row index column (e.g., `:layer_index`). If absent, layers are 1..L.
+- `drop_non_numeric` — keep only numeric data columns.
+
+Row dimension falls back to `DimensionalData.Y` when `idxcol` is not used and `rowdim` is the default `X`.
+See also: [`ICSVBase.todimarray`](@ref) for the 2D case.
+"""
 function todimarray(f::ICSV2DTimeseries; rowdim=DimensionalData.X, coldim=Dim{:field}, idxcol::Union{Symbol,Nothing}=nothing, drop_non_numeric::Bool=true)
     dates = f.dates
     isempty(dates) && throw(ArgumentError("No data"))
@@ -157,6 +232,17 @@ end
 
 
 # ------------------------ Read from file -----------------------
+"""
+    read_icsv_timeseries(filename::AbstractString, date_fmt=dateformat"yyyy-mm-ddTHH:MM:SS") -> ICSV2DTimeseries
+
+Low-level reader for the 2DTIMESERIES application profile. Used by `read`.
+
+Behavior
+- Validates first line against [`FIRSTLINES_2DTIMESERIES`](@ref).
+- Parses `[METADATA]` and `[FIELDS]`; builds [`MetaDataSection`](@ref) and [`FieldsSection`](@ref).
+- Scans `[DATA]` for `[DATE=...]` markers, counts rows per block, and errors on stray comments.
+- Reads all rows in one CSV pass, validates schema via [`check_validity`](@ref), sets column names, parses timestamps.
+"""
 function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat = dateformat"yyyy-mm-ddTHH:MM:SS")
     # Outputs
     data = Dict{DateTime,DataFrame}()
@@ -164,8 +250,8 @@ function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat = d
 
     # Header and section parsing state
     section = ""
-    metadata = Dict{String, Any}()
-    fields = Dict{String, Any}()
+    metadata = Dict{Symbol, Any}()
+    fields = Dict{Symbol, Any}()
     geometry = nothing
     meta_section = nothing
     fields_section = nothing
@@ -187,8 +273,8 @@ function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat = d
                 if section == "metadata"
                     _parse_metadata_section_line!(metadata, line)
                 elseif section == "fields"
-                    geometry = Geometry(metadata["geometry"], metadata["srid"])
-                    meta_section = MetaDataSection(metadata...)
+                    geometry = Geometry(metadata[:geometry], metadata[:srid])
+                    meta_section = MetaDataSection(;metadata...)
                     _parse_fields_section_line!(fields, meta_section, line)
                 elseif section == "data"
                     saw_data_section = true
@@ -220,7 +306,7 @@ function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat = d
     end
 
     # Finalize header sections and block bookkeeping
-    fields_section = FieldsSection(fields...)
+    fields_section = FieldsSection(;fields...)
     meta_section === nothing && throw(ArgumentError("Missing [METADATA]/[FIELDS] sections"))
     saw_data_section || throw(ArgumentError("Missing [DATA] section"))
     if in_block

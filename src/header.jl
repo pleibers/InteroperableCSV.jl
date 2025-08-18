@@ -2,11 +2,30 @@
 
 
 # -------------------- Geometry --------------------
+"""
+    Loc(; x::Float64, y::Float64, z::Union{Nothing,Float64}=nothing)
+
+A simple 2D/3D point location used in iCSV headers.
+
+- `x`, `y` are required coordinates.
+- Optional `z` adds altitude if provided.
+
+Examples
+```julia
+julia> using iCSV
+julia> Loc(x=600000.0, y=200000.0)
+Location: (X: 600000.0, Y: 200000.0)
+
+julia> Loc(x=7.0, y=8.0, z=9.0)
+Location: (X: 7.0, Y: 8.0, Z: 9.0)
+```
+"""
 struct Loc{Z <: Union{Nothing,Float64}}
     x::Float64
     y::Float64
     z::Z
 end
+
 
 function Base.show(io::IO, l::Loc)
     print(io, "Location: ")
@@ -21,15 +40,36 @@ function Loc(;x::Float64,y::Float64,z::Union{Nothing,Float64}=nothing)
     return Loc{typeof(z)}(x,y,z)
 end
 
+"""
+    Geometry(epsg::Int, location::Loc)
+    Geometry(epsg::Int, column_name::String)
+    Geometry(geometry::AbstractString, srid::AbstractString)
+
+Geolocation metadata for an iCSV file.
+
+- Either a concrete `location` (POINT/POINTZ) or a `column_name` is provided.
+- `epsg` is the spatial reference (e.g. `2056`).
+- The constructor from strings accepts WKT-like geometry (e.g. `"POINT(600000 200000)"` or `"POINTZ(7 8 9)"`) and SRID string (e.g. `"EPSG:2056"`).
+
+Examples
+```julia
+julia> using iCSV
+julia> Geometry("POINT(600000 200000)", "EPSG:2056")
+Geolocation (EPSG 2056) : Location: (X: 600000.0, Y: 200000.0)
+
+julia> Geometry(2056, Loc(x=7.0, y=8.0, z=9.0))
+Geolocation (EPSG 2056) : Location: (X: 7.0, Y: 8.0, Z: 9.0)
+```
+"""
 struct Geometry{CN <: Union{Nothing,String}, L <: Union{Nothing,Loc}}
     epsg::Int
     column_name::CN
     location::L
 end
 
-function Geometry(geometry::String, srid::String)
-    epsg = parse_srid(srid)
-    location, column_name = parse_location(geometry)
+function Geometry(geometry::AbstractString, srid::AbstractString)
+    epsg = parse_srid(String(srid))
+    location, column_name = parse_location(String(geometry))
     return Geometry(epsg, column_name, location)
 end
 Geometry(epsg::Int, location::Loc) = Geometry(epsg, nothing, location)
@@ -44,6 +84,12 @@ function Base.show(io::IO, g::Geometry)
     end
 end
 
+"""
+    parse_srid(srid::String) -> Int
+
+Internal: parse `"EPSG:XXXX"` strings from the [METADATA] section into an integer EPSG code.
+Used by [`Geometry(::AbstractString, ::AbstractString)`](@ref).
+"""
 function parse_srid(srid::String)
     try 
         parts = split(srid, ":")
@@ -53,6 +99,13 @@ function parse_srid(srid::String)
     end
 end
 
+"""
+    parse_location(geometry::String) -> (Loc|nothing, String|nothing)
+
+Internal: parse WKT-like `"POINT(...)"`/`"POINTZ(...)"` strings from [METADATA] into a
+[`Loc`](@ref). If parsing fails, returns `(nothing, geometry)` treating the string as a column name.
+Used by [`Geometry(::AbstractString, ::AbstractString)`](@ref).
+"""
 function parse_location(geometry::String)
     if occursin("POINTZ", geometry)
         content = split(split(geometry, "(")[2], ")")[1]
@@ -75,6 +128,12 @@ function parse_location(geometry::String)
     end
 end
 
+"""
+    get_geometry_string(g::Geometry) -> String
+
+Internal: render a [`Geometry`](@ref) back into the form expected in [METADATA]
+(`"POINT..."` or a column name).
+"""
 function get_geometry_string(g::Geometry)
     if g.column_name !== nothing
         return g.column_name
@@ -86,27 +145,56 @@ function get_geometry_string(g::Geometry)
     end
 end
 
+"""
+    get_srid_string(g::Geometry) -> String
+
+Internal: render an EPSG string for [METADATA], e.g. `"EPSG:2056"`.
+"""
 get_srid_string(g::Geometry) = "EPSG:$(g.epsg)"
 
 # -------------------- MetaDataSection --------------------
+"""
+    RequiredMetadata(; field_delimiter::String, geometry::Union{String,Geometry}, srid=nothing)
+
+Required [METADATA] keys for an iCSV file.
+
+- `field_delimiter` — the delimiter used in the `[FIELDS]` header and the data section.
+- `geometry` — either a WKT-like `"POINT(...)"`/`"POINTZ(...)"` or a column name carrying geometry.
+- `srid` — spatial reference as `"EPSG:XXXX"`; inferred from `Geometry` if omitted.
+
+Usually constructed internally via [`MetaDataSection`](@ref).
+See also: [`Geometry`](@ref), [`metadata`](@ref).
+"""
 struct RequiredMetadata
     field_delimiter::String
     geometry::String
     srid::String
 end
-Base.keys(::RequiredMetadata) = fieldnames(RequiredMetadata)
-Base.haskey(md::RequiredMetadata, key::AbstractString) = key in keys(md)
-function RequiredMetadata(;field_delimiter::String, geometry::Union{String,Geometry}, srid::Union{String,Nothing}=nothing, kwargs...) 
+function RequiredMetadata(;field_delimiter::AbstractString, geometry::Union{AbstractString,Geometry}, srid::Union{AbstractString,Nothing}=nothing, kwargs...) 
     if geometry isa Geometry
         geometry_string = get_geometry_string(geometry)
         srid_string = get_srid_string(geometry)
-    elseif geometry isa String
-        geometry_string = geometry
-        srid_string = srid
+    elseif geometry isa AbstractString
+        geometry_string = String(geometry)
+        srid_string = String(srid)
     end
-    return RequiredMetadata(field_delimiter, geometry_string, srid_string)
+    return RequiredMetadata(String(field_delimiter), geometry_string, srid_string)
 end
 
+"""
+    RecommendedMetadata(; station_id=nothing, nodata=nothing, timezone=nothing, doi=nothing, timestamp_meaning=nothing)
+
+Optional, recommended [METADATA] keys. Empty fields are omitted on write.
+
+Common conventions
+- `station_id` — site identifier
+- `nodata` — sentinel value meaning missing in data rows
+- `timezone` — e.g. `"UTC"`, `"Europe/Zurich"`, or numeric offset
+- `doi` — dataset DOI
+- `timestamp_meaning` — e.g. `"start"`, `"end"`, `"instant"`
+
+See also: [`MetaDataSection`](@ref).
+"""
 struct RecommendedMetadata{SID <: Union{String,Nothing}, NO <: Union{Float64,Int,Nothing}, TZ <: Union{String,Int,Float64,Nothing}, DOI <: Union{String,Nothing}, TM <: Union{String,Nothing}}
     station_id::SID
     nodata::NO
@@ -114,14 +202,12 @@ struct RecommendedMetadata{SID <: Union{String,Nothing}, NO <: Union{Float64,Int
     doi::DOI
     timestamp_meaning::TM
 end
-Base.keys(::RecommendedMetadata) = fieldnames(RecommendedMetadata)
-Base.haskey(md::RecommendedMetadata, key::AbstractString) = key in keys(md)
-Base.isempty(rec::RecommendedMetadata{SID <: Union{String,Nothing}, NO <: Union{Float64,Int,Nothing}, TZ <: Union{String,Int,Float64,Nothing}, DOI <: Union{String,Nothing}, TM <: Union{String,Nothing}}) = (rec.station_id === nothing && rec.nodata === nothing && rec.timezone === nothing && rec.doi === nothing && rec.timestamp_meaning === nothing)
+Base.isempty(rec::RecommendedMetadata) = (rec.station_id === nothing && rec.nodata === nothing && rec.timezone === nothing && rec.doi === nothing && rec.timestamp_meaning === nothing)
 function RecommendedMetadata(; station_id=nothing, nodata=nothing, timezone=nothing, doi=nothing, timestamp_meaning=nothing, kwargs...)
     return RecommendedMetadata(station_id, nodata, timezone, doi, timestamp_meaning)
 end
 
-function _pop_from_metadata_kwargs!(kwargs::Dict{Symbol,Any})
+function _pop_from_metadata_kwargs!(kwargs::Dict{Symbol,S}) where S <: Any
     required_kwargs = fieldnames(RequiredMetadata)
     recommended_kwargs = fieldnames(RecommendedMetadata)
     for k in required_kwargs
@@ -138,6 +224,25 @@ function _pop_from_metadata_kwargs!(kwargs::Dict{Symbol,Any})
 end
     
 
+"""
+    MetaDataSection(; field_delimiter, geometry, srid, station_id=nothing, nodata=nothing, timezone=nothing, doi=nothing, timestamp_meaning=nothing, kwargs...)
+
+Container for all file-level [METADATA]. Composed of:
+
+- Required: `field_delimiter`, `geometry`, `srid` (see [`RequiredMetadata`](@ref)).
+- Recommended: `station_id`, `nodata`, `timezone`, `doi`, `timestamp_meaning` (see [`RecommendedMetadata`](@ref)).
+- Other: any additional key/value pairs.
+
+Access fields directly, e.g. `md.field_delimiter` or `md.station_id`.
+
+See also: [`metadata`](@ref) for a flat Dict view used when writing headers,
+[`Geometry`](@ref) for SRID/POINT parsing.
+
+Example
+```julia
+md = MetaDataSection(field_delimiter=",", geometry="POINT(600000 200000)", srid="EPSG:2056", station_id="X")
+```
+"""
 struct MetaDataSection{RM <: RecommendedMetadata}
     required::RequiredMetadata
     recommended::RM
@@ -145,72 +250,111 @@ struct MetaDataSection{RM <: RecommendedMetadata}
 end
 
 function MetaDataSection(;kwargs...)
+    required = nothing
     try 
         required = RequiredMetadata(;kwargs...)
     catch e
         throw(ArgumentError("Invalid required metadata, needs field_delimiter::String, geometry::String, srid::Int\n\n Error: $(e)"))
     end
     recommended = RecommendedMetadata(;kwargs...)
-    _pop_from_metadata_kwargs!(kwargs)
-    other_metadata = Dict{Symbol,String}(kwargs)
+    kw = Dict(kwargs)
+    _pop_from_metadata_kwargs!(kw)
+    other_metadata = Dict{Symbol,String}(kw)
     return MetaDataSection(required, recommended, other_metadata)
 end
 
-function Base.getfield(md::MetaDataSection, field::Symbol)
+function Base.getproperty(md::MetaDataSection, field::Symbol)
     if field in fieldnames(RequiredMetadata)
-        return getfield(md.required, field)
+        return getfield(getfield(md, :required), field)
     elseif field in fieldnames(RecommendedMetadata)
-        return getfield(md.recommended, field)
-    elseif field in keys(md.other_metadata)
-        return md.other_metadata[field]
+        return getfield(getfield(md, :recommended), field)
+    elseif field in keys(getfield(md, :other_metadata))
+        return getfield(md, :other_metadata)[field]
     else
-        throw(ArgumentError("Invalid field name: $(field)"))
+        return getfield(md, field)
     end
 end
 
 function Base.show(io::IO, md::MetaDataSection)
     out_msg = "METADATA:\nRequired:\n"
-    req = join(["$k : $(getfield(md.required, k))" for k in keys(md.required)], "\n")
+    req_md = getfield(md, :required)
+    rec_md = getfield(md, :recommended)
+    oth_md = getfield(md, :other_metadata)
+    req = join(["$k : $(getfield(req_md, k))" for k in keys(req_md)], "\n")
     out_msg *= req
-    if !isempty(md.recommended)
+    if !isempty(rec_md)
         out_msg *= "\nRecommended:\n"
-        rec = join(["$k : $(getfield(md.recommended, k))" for k in keys(md.recommended) if getfield(md.recommended, k) !== nothing], "\n")
+        rec = join(["$k : $(getfield(rec_md, k))" for k in keys(rec_md) if getfield(rec_md, k) !== nothing], "\n")
         out_msg *= rec
     end
-    if !isempty(md.other_metadata)
+    if !isempty(oth_md)
         out_msg *= "\nOther Metadata:\n"
-        oth = join(["$k : $(v)" for (k,v) in md.other_metadata if v !== nothing], "\n")
+        oth = join(["$k : $(v)" for (k,v) in oth_md if v !== nothing], "\n")
         out_msg *= oth
     end
     print(io, out_msg)
 end
+
+"""
+    get_attribute(obj, name)
+
+Retrieve a metadata/field attribute by name. Works for both `MetaDataSection` and
+`FieldsSection`. Returns `nothing` if not set.
+"""
 get_attribute(md::MetaDataSection, attribute_name::String) = get_attribute(md, Symbol(attribute_name))
 function get_attribute(md::MetaDataSection, attribute_name::Symbol)
-    if haskey(md.required, attribute_name)
-        return getfield(md.required, attribute_name)
-    elseif haskey(md.recommended, attribute_name)
-        return getfield(md.recommended, attribute_name)
+    req_md = getfield(md, :required)
+    rec_md = getfield(md, :recommended)
+    oth_md = getfield(md, :other_metadata)
+    if attribute_name in fieldnames(RequiredMetadata)
+        return getfield(req_md, attribute_name)
+    elseif attribute_name in fieldnames(RecommendedMetadata)
+        return getfield(rec_md, attribute_name)
+    elseif attribute_name in keys(oth_md)
+        return get(oth_md, attribute_name, nothing)
     else
-        return get(md.other_metadata, attribute_name, nothing)
+        @warn "Invalid attribute name: $(attribute_name)"
+        return nothing
     end
 end
 
+"""
+    metadata(md::MetaDataSection) -> Dict{String,String}
+
+Return a flat Dict view of all metadata values (required, recommended if set, and other), stringified for writing.
+"""
 function metadata(md::MetaDataSection)::Dict{String,String}
     metadata = Dict{String,String}()
-    for k in keys(md.required)
-        metadata[k] = string(getfield(md.required, k))
+    req_md = md.required
+    rec_md = md.recommended
+    oth_md = md.other_metadata
+    for k in fieldnames(RequiredMetadata)
+        metadata[string(k)] = string(getfield(req_md, k))
     end
-    for k in keys(md.recommended)
-        v = getfield(md.recommended, k)
-        v !== nothing && (metadata[k] = string(v))
+    for k in fieldnames(RecommendedMetadata)
+        v = getfield(rec_md, k)
+        v !== nothing && (metadata[string(k)] = string(v))
     end
-    for (k,v) in md.other_metadata
-        v !== nothing && (metadata[k] = string(v))
+    for (k,v) in oth_md
+        v !== nothing && (metadata[string(k)] = string(v))
     end
     return metadata
 end
 
 # -------------------- FieldsSection --------------------
+"""
+    RecommendedFields(; units_multiplier=[], units=[], long_name=[], standard_name=[])
+
+Optional per-column attributes that may appear in the [FIELDS] section.
+Vectors must either be empty or have the same length as `fields`.
+
+Common conventions
+- `units_multiplier` — numeric scaling factors per column
+- `units` — e.g. `"m"`, `"K"`
+- `long_name`, `standard_name` — human- and standard-vocabulary names
+
+See also: [`FieldsSection`](@ref), [`check_validity`](@ref).
+"""
 struct RecommendedFields
     units_multiplier::Vector{Float64}
     units::Vector{String}
@@ -218,11 +362,9 @@ struct RecommendedFields
     standard_name::Vector{String}
 end
 function RecommendedFields(;units_multiplier=Float64[], units=String[], long_name=String[], standard_name=String[],kwargs...)
-    return RecommendedFields(units_multiplier, units, long_name, standard_name)
+    return RecommendedFields(units_multiplier, String.(units), String.(long_name), String.(standard_name))
 end
 
-Base.haskey(::RecommendedFields, key::AbstractString) = key in fieldnames(RecommendedFields)
-Base.keys(::RecommendedFields) = fieldnames(RecommendedFields)
 function Base.isempty(rec::RecommendedFields)
     for k in fieldnames(RecommendedFields)
         isempty(getfield(rec, k)) || return false
@@ -230,7 +372,7 @@ function Base.isempty(rec::RecommendedFields)
     return true
 end
 
-function _pop_from_fields_kwargs!(kwargs::Dict{Symbol,Any})
+function _pop_from_fields_kwargs!(kwargs::Dict{Symbol,S}) where S <: Any
    recommended_fields_kwargs = fieldnames(RecommendedFields)
    for k in recommended_fields_kwargs
        if haskey(kwargs, k)
@@ -238,16 +380,46 @@ function _pop_from_fields_kwargs!(kwargs::Dict{Symbol,Any})
        end
    end
 end
+"""
+    FieldsSection
+
+Representation of the [FIELDS] header. Contains:
+
+- `fields::Vector{String}` — column names in the data section (required)
+- `recommended_fields::RecommendedFields` — optional per-column attributes
+- `other_fields::Dict{Symbol,Vector{String}}` — any other per-column attributes
+
+See also: [`all_fields`](@ref), [`miscellaneous_fields`](@ref), [`check_validity`](@ref).
+"""
 struct FieldsSection
     fields::Vector{String}
     recommended_fields::RecommendedFields
     other_fields::Dict{Symbol,Vector{String}}
 end
 
-function FieldsSection(;fields::Vector{String},kwargs...)
+"""
+    FieldsSection(; fields::Vector{String}, kwargs...)
+
+Construct from keyword arguments typically parsed from the [FIELDS] section.
+`fields` is required; any provided vectors under known recommended keys populate
+[`RecommendedFields`](@ref), and all other vector-valued keys go into `other_fields`.
+
+Notes
+- String-valued attributes are ignored with a warning; use vector values per column.
+- Lengths are validated later by [`check_validity`](@ref).
+"""
+function FieldsSection(;fields::Vector{S},kwargs...) where S <: AbstractString
     rec = RecommendedFields(;kwargs...)
-    _pop_from_fields_kwargs!(kwargs)
-    other_fields = Dict{Symbol,Vector{String}}(kwargs)
+    kw = Dict(kwargs)
+    _pop_from_fields_kwargs!(kw)
+    other_fields = Dict{Symbol,Vector{String}}()
+    for (k,v) in kw
+        if v isa AbstractString
+            @warn "String values for $(k) are not supported, skipping"
+            continue
+        end
+        other_fields[k] = v
+    end
     fields =  FieldsSection(fields, rec, other_fields)
     return fields
 end
@@ -268,17 +440,26 @@ end
 function get_attribute(f::FieldsSection, attribute_name::Symbol)
     if attribute_name == :fields
         return f.fields
-    elseif haskey(f.recommended_fields, attribute_name)
+    elseif attribute_name in fieldnames(RecommendedFields)
         return getfield(f.recommended_fields, attribute_name)
-    else
+    elseif attribute_name in keys(f.other_fields)
         return get(f.other_fields, attribute_name, nothing)
+    else
+        @warn "Invalid attribute name: $(attribute_name)"
+        return nothing
     end
 end
 
+"""
+    all_fields(f::FieldsSection) -> Dict{Symbol,Vector{String}}
+
+Return all declared per-column attributes including `:fields` and any non-empty recommended/other fields.
+"""
 function all_fields(f::FieldsSection)::Dict{Symbol,Vector{String}}
     all_fields = Dict{Symbol,Vector{String}}()
     all_fields[:fields] = f.fields
-    for (k,v) in f.recommended_fields
+    for k in fieldnames(RecommendedFields)
+        v = getfield(f.recommended_fields, k)
         !isempty(v) && (all_fields[k] = v)
     end
     for (k,v) in f.other_fields
@@ -287,9 +468,15 @@ function all_fields(f::FieldsSection)::Dict{Symbol,Vector{String}}
     return all_fields
 end
 
+"""
+    miscellaneous_fields(f::FieldsSection) -> Dict{Symbol,Vector{String}}
+
+Return all per-column attributes except the main `:fields` names (used for metadata propagation to DataFrames/DimArrays).
+"""
 function miscellaneous_fields(f::FieldsSection)::Dict{Symbol,Vector{String}}
     misc_fields = Dict{Symbol,Vector{String}}()
-    for (k,v) in f.recommended_fields
+    for k in fieldnames(RecommendedFields)
+        v = getfield(f.recommended_fields, k)
         !isempty(v) && (misc_fields[k] = v)
     end
     for (k,v) in f.other_fields
@@ -298,9 +485,15 @@ function miscellaneous_fields(f::FieldsSection)::Dict{Symbol,Vector{String}}
     return misc_fields
 end
 
+"""
+    check_validity(f::FieldsSection, ncols::Int) -> true
+
+Validate that all declared field vectors have length `ncols`.
+Throws `ArgumentError` on mismatch.
+"""
 function check_validity(f::FieldsSection, ncols::Int)
     length(f.fields) == ncols || throw(ArgumentError("Number of fields does not match the number of columns"))
-    for k in keys(f.recommended_fields)
+    for k in fieldnames(RecommendedFields)
         v = getfield(f.recommended_fields, k)
         (!isempty(v) && length(v) != ncols) && throw(ArgumentError("Number of $(k) does not match the number of columns"))
     end

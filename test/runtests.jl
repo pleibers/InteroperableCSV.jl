@@ -11,16 +11,16 @@ using DimensionalData
     ts = [DateTime(2024,1,1) + Day(i-1) for i in 1:5]
     df = DataFrame(timestamp = ts, a = 1:5, b = 6:10)
 
-    metadata = Dict{String, String}()
-    metadata["field_delimiter"] = ","
-    metadata["geometry"] = "POINTZ(7 8 9)"
-    metadata["srid"] = "EPSG:2056"
-    fields = Dict{String, String}()
-    fields["fields"] = "timestamp,a,b"
-    meta_section = MetaDataSection(metadata...)
-    fields_section = FieldsSection(fields...)
-    geometry = Geometry(metadata["geometry"], metadata["srid"])
-    f = ICSVBase(meta_section, fields_section, geometry,data)
+    metadata = Dict{Symbol, String}()
+    metadata[:field_delimiter] = ","
+    metadata[:geometry] = "POINTZ(7 8 9)"
+    metadata[:srid] = "EPSG:2056"
+    fields = Dict{Symbol, Vector{String}}()
+    fields[:fields] = ["timestamp","a","b"]
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
+    f = ICSVBase(meta_section, fields_section, geometry, df)
     iCSV.write(f, file)
 
     g = iCSV.read(file)
@@ -33,7 +33,8 @@ using DimensionalData
     @test all(g.data.timestamp .== df.timestamp)
 
     loc = g.geolocation.location
-    @test loc.x == 7.0 && loc.y == 8.0 && loc.z == 9.0 && loc.epsg == 2056
+    epsg = g.geolocation.epsg
+    @test loc.x == 7.0 && loc.y == 8.0 && loc.z == 9.0 && epsg == 2056
 
     A = iCSV.todimarray(g)
     @test size(A) == (nrow(df), 2) # drop timestamp column
@@ -128,15 +129,15 @@ end
     d2 = DateTime(2024,1,2,10)
     df1 = DataFrame(var1 = [1.0,2.0,3.0], var2 = [10.0,20.0,30.0])
     df2 = DataFrame(var1 = [1.5,2.5,3.5], var2 = [15.0,25.0,35.0])
-    metadata = Dict{String, String}()
-    metadata["field_delimiter"] = ","
-    metadata["geometry"] = "POINTZ(7 8 9)"
-    metadata["srid"] = "EPSG:2056"
-    fields = Dict{String, String}()
-    fields["fields"] = "var1,var2"
-    meta_section = MetaDataSection(metadata...)
-    fields_section = FieldsSection(fields...)
-    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    metadata = Dict{Symbol, String}()
+    metadata[:field_delimiter] = ","
+    metadata[:geometry] = "POINTZ(7 8 9)"
+    metadata[:srid] = "EPSG:2056"
+    fields = Dict{Symbol, Vector{String}}()
+    fields[:fields] = ["var1","var2"]
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
     p = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1, df2], [d1,d2])
     A = iCSV.todimarray(p)
     @test size(A) == (3, 2, 2)
@@ -148,15 +149,15 @@ end
     # drop_non_numeric flag behavior for 2DTIMESERIES
     df1b = DataFrame(layer_index=1:3, num=[1,2,3], str=["a","b","c"])
     df2b = DataFrame(layer_index=1:3, num=[2,3,4], str=["d","e","f"])
-    metadata = Dict{String, String}()
-    metadata["field_delimiter"] = ","
-    metadata["geometry"] = "POINTZ(7 8 9)"
-    metadata["srid"] = "EPSG:2056"
-    fields = Dict{String, String}()
-    fields["fields"] = "layer_index,num,str"
-    meta_section = MetaDataSection(metadata...)
-    fields_section = FieldsSection(fields...)
-    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    metadata = Dict{Symbol, String}()
+    metadata[:field_delimiter] = ","
+    metadata[:geometry] = "POINTZ(7 8 9)"
+    metadata[:srid] = "EPSG:2056"
+    fields = Dict{Symbol, Vector{String}}()
+    fields[:fields] = ["layer_index","num","str"]
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
     p2 = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1b, df2b], [d1,d2])
     A3 = iCSV.todimarray(p2) # default drop_non_numeric=true
     @test size(A3) == (3, 1, 2) # only numeric field kept
@@ -166,15 +167,15 @@ end
     # drop_non_numeric for ICSVBase
     ts = [DateTime(2024,1,1) + Day(i-1) for i in 1:3]
     dff = DataFrame(timestamp = ts, a = [1,2,3], s = ["x","y","z"])
-    metadata = Dict{String, String}()
-    metadata["field_delimiter"] = ","
-    metadata["geometry"] = "POINTZ(7 8 9)"
-    metadata["srid"] = "EPSG:2056"
-    fields = Dict{String, String}()
-    fields["fields"] = "timestamp,a,s"
-    meta_section = MetaDataSection(metadata...)
-    fields_section = FieldsSection(fields...)
-    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    metadata = Dict{Symbol, String}()
+    metadata[:field_delimiter] = ","
+    metadata[:geometry] = "POINTZ(7 8 9)"
+    metadata[:srid] = "EPSG:2056"
+    fields = Dict{Symbol, Vector{String}}()
+    fields[:fields] = ["timestamp","a","s"]
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
     f = ICSVBase(meta_section, fields_section, geometry,dff)
     A5 = iCSV.todimarray(f) # drop non-numeric
     @test size(A5) == (3, 1)
@@ -190,15 +191,15 @@ end
     df1 = DataFrame(layer_index = 1:3, var1 = [1.0,2.0,3.0], var2 = [10.0, 20.0, 30.0])
     df2 = DataFrame(layer_index = 1:3, var1 = [1.5,2.5,3.5], var2 = [15.0, 25.0, 35.0])
 
-    metadata = Dict{String, String}()
-    metadata["field_delimiter"] = ","
-    metadata["geometry"] = "POINT(600000 200000)"
-    metadata["srid"] = "EPSG:2056"
-    fields = Dict{String, String}()
-    fields["fields"] = "layer_index,var1,var2"
-    meta_section = MetaDataSection(metadata...)
-    fields_section = FieldsSection(fields...)
-    geometry = Geometry(metadata["geometry"], metadata["srid"])
+    metadata = Dict{Symbol, String}()
+    metadata[:field_delimiter] = ","
+    metadata[:geometry] = "POINT(600000 200000)"
+    metadata[:srid] = "EPSG:2056"
+    fields = Dict{Symbol, Vector{String}}()
+    fields[:fields] = ["layer_index","var1","var2"]
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
     p = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1, df2], [d1,d2])
     iCSV.write(p, file)
 
