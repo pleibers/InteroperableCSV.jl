@@ -1,7 +1,7 @@
 name = "iCSV"
 uuid = "1fbc523b-fa59-4a4c-89bb-0e3fcf7c697f"
 authors = ["patrick.leibersperger <patrick.leibersperger@slf.ch> and contributors"]
-version = "0.1.0-DEV"
+version = "0.1.1"
 
 [deps]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
