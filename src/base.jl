@@ -102,27 +102,26 @@ end
 function _coerce_to_dataframe(data::AbstractDict, fields::FieldsSection)
     ndecl = length(fields.fields)
     ndecl > 0 || throw(ArgumentError("FieldsSection has no declared fields; cannot map dict columns"))
-    # normalize keys to Symbol for lookup
-    keyset = Set(Symbol.(collect(keys(data))))
-    norm = Dict{Symbol,Any}()
-    for (k,v) in pairs(data)
-        norm[Symbol(k)] = v
-    end
+    # Collect required columns in declared order without normalizing/copying keys
     needed = Symbol.(fields.fields)
-    all(in.(needed, (keyset,))) || throw(ArgumentError("Dict is missing required keys to match declared fields"))
     cols = Vector{AbstractVector}(undef, ndecl)
-    nrows = nothing
-    for (i, name) in enumerate(needed)
-        v = norm[name]
-        v isa AbstractVector || throw(ArgumentError("Dict value for $(name) must be a vector"))
-        if nrows === nothing
+    nrows = Int(-1)
+    @inbounds for (i, name) in enumerate(needed)
+        v = if haskey(data, name)
+            data[name]
+        else
+            s = String(name)
+            haskey(data, s) ? data[s] : nothing
+        end
+        v isa AbstractVector || throw(ArgumentError("Dict is missing required vector column $(name) or wrong type"))
+        if nrows < 0
             nrows = length(v)
         else
             length(v) == nrows || throw(ArgumentError("Column length mismatch in Dict for $(name)"))
         end
         cols[i] = v
     end
-    return DataFrame(cols, needed)
+    return DataFrame(cols, needed; copycols=false)
 end
 
 """
