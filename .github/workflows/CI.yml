@@ -23,7 +23,6 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.6'
           - '1.9'
           - 'pre'
         os:
@@ -39,3 +38,12 @@ jobs:
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: true
+      - uses: julia-actions/julia-processcoverage@v1
+        if: ${{ matrix.version == '1.9' }}
+      - uses: codecov/codecov-action@v4
+        if: ${{ matrix.version == '1.9' }}
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
