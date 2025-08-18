@@ -22,7 +22,6 @@ function isnumber(s::AbstractString)::Bool
     end
 end
 
-
 """
     _DT_FORMATS
 

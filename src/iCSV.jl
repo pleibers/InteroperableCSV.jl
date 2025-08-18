@@ -34,9 +34,10 @@ module iCSV
 # Write your package code here.
  
  using CSV
- using DataFrames
+ using Reexport
+ @reexport using DataFrames
  using Dates
- using DimensionalData
+ @reexport using DimensionalData
  
  export ICSVBase, ICSV2DTimeseries
  export MetaDataSection, FieldsSection, Geometry, Loc
