@@ -31,6 +31,19 @@ Convenience constructor accepting `Vector{DataFrame}` and matching `Vector{DateT
     out_datefmt::DateFormat = dateformat"yyyy-mm-ddTHH:MM:SS"
 end
 
+"""
+    ICSV2DTimeseries(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
+                      data::Dict{DateTime,DataFrame}, dates::Vector{DateTime};
+                      out_datefmt=dateformat"yyyy-mm-ddTHH:MM:SS")
+
+Convenience constructor to build directly from a dictionary of per-date DataFrames.
+"""
+function ICSV2DTimeseries(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
+                           data::Dict{DateTime,DataFrame}, dates::Vector{DateTime};
+                           out_datefmt::DateFormat = dateformat"yyyy-mm-ddTHH:MM:SS")
+    return ICSV2DTimeseries(meta, fields, geom, data, collect(dates), out_datefmt)
+end
+
 function ICSV2DTimeseries(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
                            dfs::Vector{DataFrame}, dates::Vector{DateTime})
     length(dfs) == length(dates) || throw(ArgumentError("Number of data frames and dates must match"))
@@ -317,7 +330,7 @@ function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat = d
     # Single CSV pass over whole file; comments skipped
     delim_str = String(get_attribute(meta_section, "field_delimiter"))
     delim = isempty(delim_str) ? ',' : delim_str[1]
-    df_all = DataFrame(CSV.File(filename; header=false, comment='#', delim=delim, ignoreemptyrows=true, threaded=true, reusebuffer=true))
+    df_all = DataFrame(CSV.File(filename; header=false, comment="#", delim=delim, ignoreemptyrows=true))
 
     total_rows = sum(block_lengths)
     nrow(df_all) == total_rows || throw(ArgumentError("Data row count mismatch: expected $(total_rows) rows across $(length(dates)) dates, got $(nrow(df_all))"))

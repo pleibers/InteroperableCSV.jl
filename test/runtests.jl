@@ -53,7 +53,12 @@ end
             println(io, "# fields = $(fields)")
             println(io, "# [DATA]")
             for ln in body_lines
-                println(io, ln)
+                # Ensure DATE markers are written as comment lines per spec
+                if startswith(ln, "[DATE=")
+                    println(io, "# $(ln)")
+                else
+                    println(io, ln)
+                end
             end
         end
         return path
@@ -71,7 +76,7 @@ end
     q1 = iCSV.read(file1)
     @test q1 isa iCSV.ICSV2DTimeseries
     @test length(q1.dates) == 1
-    @test names(q1.data[q1.dates[1]]) == [:a,:b]
+    @test Symbol.(names(q1.data[q1.dates[1]])) == [:a,:b]
     @test all(q1.data[q1.dates[1]][!, :a] .== [1,3])
     @test all(q1.data[q1.dates[1]][!, :b] .== [2,4])
 
