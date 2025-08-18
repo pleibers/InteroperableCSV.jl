@@ -8,8 +8,6 @@
 - Converts to `DataFrame` and `DimensionalData.DimArray`
 - Simple, explicit header structures: `MetaDataSection`, `FieldsSection`, `Geometry`, `Loc`
 
-Docs: [latest](https://leibersp.github.io/iCSV.jl/dev) (API, guides)
-
 ## Installation
 
 ```julia
