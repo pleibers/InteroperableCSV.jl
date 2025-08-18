@@ -4,6 +4,59 @@ using DataFrames
 using Dates
 using DimensionalData
 
+@testset "Flexible constructors: ICSVBase" begin
+    metadata = Dict{Symbol, String}(:field_delimiter => ",", :geometry => "POINT(1 2)", :srid => "EPSG:2056")
+    fields = Dict{Symbol, Vector{String}}(:fields => ["timestamp","a","b"]) 
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
+
+    # from Matrix
+    ts = [DateTime(2024,1,1) + Day(i-1) for i in 1:3]
+    mat = hcat(ts, collect(1:3), collect(10:12))
+    fM = ICSVBase(meta_section, fields_section, geometry, mat)
+    @test fM isa ICSVBase
+    @test Symbol.(names(fM.data)) == Symbol.(fields[:fields])
+    @test all(fM.data.a .== 1:3) && all(fM.data.b .== 10:12)
+
+    # from Dict with Symbol keys
+    dS = Dict(:timestamp=>ts, :a=>[2,3,4], :b=>[20,30,40])
+    fD = ICSVBase(meta_section, fields_section, geometry, dS)
+    @test fD isa ICSVBase
+    @test Symbol.(names(fD.data)) == Symbol.(fields[:fields])
+    @test all(fD.data.a .== [2,3,4]) && all(fD.data.b .== [20,30,40])
+
+    # from Dict with String keys
+    dStr = Dict("timestamp"=>ts, "a"=>[5,6,7], "b"=>[50,60,70])
+    fDS = ICSVBase(meta_section, fields_section, geometry, dStr)
+    @test Symbol.(names(fDS.data)) == Symbol.(fields[:fields])
+    @test all(fDS.data.a .== [5,6,7])
+end
+
+@testset "Flexible constructors: ICSV2DTimeseries" begin
+    d1 = DateTime(2024,1,1,0)
+    d2 = DateTime(2024,1,2,0)
+    metadata = Dict{Symbol, String}(:field_delimiter => ",", :geometry => "POINT(1 2)", :srid => "EPSG:2056")
+    fields = Dict{Symbol, Vector{String}}(:fields => ["layer_index","var1","var2"]) 
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
+
+    # Dict{DateTime, Matrix}
+    M1 = hcat(collect(1:3), [1.0,2.0,3.0], [10.0,20.0,30.0])
+    M2 = hcat(collect(1:3), [1.5,2.5,3.5], [15.0,25.0,35.0])
+    dm = Dict(d1=>M1, d2=>M2)
+    tsm = ICSV2DTimeseries(meta_section, fields_section, geometry, dm, [d1,d2])
+    @test tsm isa ICSV2DTimeseries
+    @test all(Symbol.(names(tsm.data[d1])) .== [:layer_index,:var1,:var2])
+
+    # Vector of Dicts
+    dct1 = Dict(:layer_index=>1:2, :var1=>[1.0,2.0], :var2=>[10.0,20.0])
+    dct2 = Dict(:layer_index=>1:3, :var1=>[1.5,2.5,3.5], :var2=>[15.0,25.0,35.0])
+    tsv = ICSV2DTimeseries(meta_section, fields_section, geometry, [dct1, dct2], [d1,d2])
+    @test nrow(tsv.data[d1]) == 2
+    @test nrow(tsv.data[d2]) == 3
+end
 @testset "ICSV basic read/write" begin
     tmp = mktempdir()
     file = joinpath(tmp, "basic.icsv")
@@ -223,4 +276,18 @@ end
     iCSV.append_timepoint(file, d3, df3; field_delimiter=",")
     r = iCSV.read(file)
     @test length(r.dates) == 3
+
+    # append matrix
+    d4 = DateTime(2024,1,4,10)
+    mat4 = hcat(collect(1:3), [2.5,3.5,4.5], [12.5, 22.5, 32.5])
+    iCSV.append_timepoint(file, d4, mat4; field_delimiter=",")
+    r2 = iCSV.read(file)
+    @test length(r2.dates) == 4
+
+    # append dict (Symbol keys)
+    d5 = DateTime(2024,1,5,10)
+    dict5 = Dict(:layer_index=>1:2, :var1=>[3.0,4.0], :var2=>[13.0, 23.0])
+    iCSV.append_timepoint(file, d5, dict5; field_delimiter=",")
+    r3 = iCSV.read(file)
+    @test length(r3.dates) == 5
 end

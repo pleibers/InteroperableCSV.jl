@@ -13,7 +13,7 @@ Format overview
 
 API overview
 - `read` and `write` are the main entry points. See [`read`](@ref), [`write(::ICSVBase, ...)`](@ref),
-  [`write(::ICSV2DTimeseries, ...)`](@ref), and [`append_timepoint`](@ref).
+  [`write(::ICSV2DTimeseries, ...)`](@ref), and [`append_timepoint`](@ref). Not exported to avoid name clashes.
 - Conversions: [`todataframe`](@ref), [`todimarray`](@ref).
 
 Minimal example
@@ -41,7 +41,7 @@ module iCSV
  
  export ICSVBase, ICSV2DTimeseries
  export MetaDataSection, FieldsSection, Geometry, Loc
- export read, write, append_timepoint
+ export append_timepoint
  export todataframe, todimarray
  
  """

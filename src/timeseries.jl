@@ -44,12 +44,68 @@ function ICSV2DTimeseries(meta::MetaDataSection, fields::FieldsSection, geom::Ge
     return ICSV2DTimeseries(meta, fields, geom, data, collect(dates), out_datefmt)
 end
 
+"""
+    ICSV2DTimeseries(meta, fields, geom, data::Dict{DateTime,<:Union{DataFrame,AbstractMatrix,AbstractDict}}, dates; out_datefmt)
+
+Convenience constructor accepting per-date tables as `DataFrame`, `AbstractMatrix`,
+or column `AbstractDict`. Each entry is coerced to `DataFrame` using declared field order.
+
+Examples
+```julia
+md   = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056")
+flds = FieldsSection(fields=["layer_index","var1","var2"]) 
+geom = Geometry(md.geometry, md.srid)
+d1, d2 = DateTime(2024,1,1), DateTime(2024,1,2)
+
+# Dict of matrices
+M1 = hcat(1:3, [1.0,2.0,3.0], [10.0,20.0,30.0])
+M2 = hcat(1:2, [1.5,2.5], [15.0,25.0])
+d = Dict(d1=>M1, d2=>M2)
+ts = ICSV2DTimeseries(md, flds, geom, d, [d1,d2])
+```
+"""
+function ICSV2DTimeseries(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
+                           data::Dict{DateTime,<:Union{DataFrame,AbstractMatrix,AbstractDict}}, dates::Vector{DateTime};
+                           out_datefmt::DateFormat = dateformat"yyyy-mm-ddTHH:MM:SS")
+    ddf = Dict{DateTime,DataFrame}()
+    for (k,v) in data
+        ddf[k] = _coerce_to_dataframe(v, fields)
+    end
+    return ICSV2DTimeseries(meta, fields, geom, ddf, collect(dates), out_datefmt)
+end
+
 function ICSV2DTimeseries(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
                            dfs::Vector{DataFrame}, dates::Vector{DateTime})
     length(dfs) == length(dates) || throw(ArgumentError("Number of data frames and dates must match"))
     d = Dict{DateTime,DataFrame}()
     for (i, dt) in enumerate(dates)
         d[dt] = dfs[i]
+    end
+    return ICSV2DTimeseries(meta, fields, geom, d, collect(dates))
+end
+
+"""
+    ICSV2DTimeseries(meta, fields, geom, tables::Vector{<:Union{DataFrame,AbstractMatrix,AbstractDict}}, dates)
+
+Build from a vector of per-date tables (DataFrame/Matrix/Dict) and matching dates.
+Examples
+```julia
+md   = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056")
+flds = FieldsSection(fields=["layer_index","var1","var2"]) 
+geom = Geometry(md.geometry, md.srid)
+d1, d2 = DateTime(2024,1,1), DateTime(2024,1,2)
+
+tbls = [Dict(:layer_index=>1:2, :var1=>[1.0,2.0], :var2=>[10.0,20.0]),
+        hcat(1:3, [1.5,2.5,3.5], [15.0,25.0,35.0])]
+ts = ICSV2DTimeseries(md, flds, geom, tbls, [d1,d2])
+```
+"""
+function ICSV2DTimeseries(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
+                           tables::Vector{<:Union{DataFrame,AbstractMatrix,AbstractDict}}, dates::Vector{DateTime})
+    length(tables) == length(dates) || throw(ArgumentError("Number of tables and dates must match"))
+    d = Dict{DateTime,DataFrame}()
+    for (i, dt) in enumerate(dates)
+        d[dt] = _coerce_to_dataframe(tables[i], fields)
     end
     return ICSV2DTimeseries(meta, fields, geom, d, collect(dates))
 end
@@ -111,6 +167,38 @@ function append_timepoint(filename::AbstractString, timestamp::DateTime, data::D
         CSV.write(io, data; append=true, header=false, delim=delim)
     end
     return nothing
+end
+
+"""
+    append_timepoint(filename, timestamp, data::AbstractMatrix; field_delimiter=",", date_format=...) 
+
+Append using a matrix whose columns follow the declared field order.
+Example
+```julia
+mat = hcat(1:3, [2.5,3.5,4.5], [12.5, 22.5, 32.5])
+append_timepoint("file.icsv", DateTime(2024,1,4), mat; field_delimiter=",")
+```
+"""
+function append_timepoint(filename::AbstractString, timestamp::DateTime, data::AbstractMatrix; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS")
+    df = DataFrame(data, :auto)
+    return append_timepoint(filename, timestamp, df; field_delimiter=field_delimiter, date_format=date_format)
+end
+
+"""
+    append_timepoint(filename, timestamp, data::AbstractDict; field_delimiter=",", date_format=...)
+
+Append using a column dictionary; keys should match the declared field names.
+Example
+```julia
+dict = Dict(:layer_index=>1:2, :var1=>[3.0,4.0], :var2=>[13.0,23.0])
+append_timepoint("file.icsv", DateTime(2024,1,5), dict; field_delimiter=",")
+```
+"""
+function append_timepoint(filename::AbstractString, timestamp::DateTime, data::AbstractDict; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS")
+    # We cannot access FieldsSection from file alone; assume user provides correct column order.
+    # Convert by key order (stable iteration not guaranteed), so encourage OrderedDict if needed.
+    df = DataFrame(data)
+    return append_timepoint(filename, timestamp, df; field_delimiter=field_delimiter, date_format=date_format)
 end
 
 

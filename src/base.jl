@@ -33,6 +33,98 @@ function Base.show(io::IO, f::ICSVBase)
     print(io, "ICSVBase\n$(f.metadata)\n$(f.fields)\n$(f.geolocation)\n$(f.data)")
 end
 
+# -- constructors accepting non-DataFrame tabular inputs ----------------------
+
+"""
+    ICSVBase(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
+             data::Union{DataFrame,AbstractMatrix,AbstractDict})
+
+Convenience outer constructor that accepts a `DataFrame`, any `AbstractMatrix`,
+or a column dictionary (e.g., `Dict{Symbol,AbstractVector}`) and converts it to
+`DataFrame` using the declared column order in `fields.fields`.
+
+Examples
+```julia
+md   = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056")
+flds = FieldsSection(fields=["timestamp","a","b"]) 
+geom = Geometry(md.geometry, md.srid)
+
+# From a Matrix (columns must match field order)
+ts = [DateTime(2024,1,1) + Day(i-1) for i in 1:3]
+mat = hcat(ts, 1:3, 10:12)
+f1 = ICSVBase(md, flds, geom, mat)
+
+# From a Dict with Symbol or String keys
+dct = Dict(:timestamp=>ts, :a=>[2,3,4], :b=>[20,30,40])
+f2 = ICSVBase(md, flds, geom, dct)
+
+dct2 = Dict("timestamp"=>ts, "a"=>[5,6,7], "b"=>[50,60,70])
+f3 = ICSVBase(md, flds, geom, dct2)
+```
+"""
+function ICSVBase(meta::MetaDataSection, fields::FieldsSection, geom::Geometry,
+                  data::Union{DataFrame,AbstractMatrix,AbstractDict})
+    df = _coerce_to_dataframe(data, fields)
+    return ICSVBase(meta, fields, geom, df)
+end
+
+"""
+    _coerce_to_dataframe(data, fields::FieldsSection) -> DataFrame
+
+Internal: convert various tabular inputs to a `DataFrame` with columns ordered
+and named according to `fields.fields`. Validates column count/lengths.
+
+Example
+```julia
+df = _coerce_to_dataframe(hcat(1:2, 3:4), FieldsSection(fields=["a","b"]))
+@assert names(df) == [:a,:b]
+```
+"""
+function _coerce_to_dataframe(data::DataFrame, fields::FieldsSection)
+    if isempty(fields.fields)
+        return DataFrame(data)
+    else
+        df = DataFrame(data)
+        check_validity(fields, size(df, 2))
+        # rename by position to declared field names
+        rename!(df, Symbol.(fields.fields))
+        return df
+    end
+end
+
+function _coerce_to_dataframe(data::AbstractMatrix, fields::FieldsSection)
+    ndecl = length(fields.fields)
+    ndecl > 0 || throw(ArgumentError("FieldsSection has no declared fields; cannot map matrix columns"))
+    size(data, 2) == ndecl || throw(ArgumentError("Matrix has $(size(data,2)) columns, but $(ndecl) fields declared"))
+    return DataFrame(data, Symbol.(fields.fields))
+end
+
+function _coerce_to_dataframe(data::AbstractDict, fields::FieldsSection)
+    ndecl = length(fields.fields)
+    ndecl > 0 || throw(ArgumentError("FieldsSection has no declared fields; cannot map dict columns"))
+    # normalize keys to Symbol for lookup
+    keyset = Set(Symbol.(collect(keys(data))))
+    norm = Dict{Symbol,Any}()
+    for (k,v) in pairs(data)
+        norm[Symbol(k)] = v
+    end
+    needed = Symbol.(fields.fields)
+    all(in.(needed, (keyset,))) || throw(ArgumentError("Dict is missing required keys to match declared fields"))
+    cols = Vector{AbstractVector}(undef, ndecl)
+    nrows = nothing
+    for (i, name) in enumerate(needed)
+        v = norm[name]
+        v isa AbstractVector || throw(ArgumentError("Dict value for $(name) must be a vector"))
+        if nrows === nothing
+            nrows = length(v)
+        else
+            length(v) == nrows || throw(ArgumentError("Column length mismatch in Dict for $(name)"))
+        end
+        cols[i] = v
+    end
+    return DataFrame(cols, needed)
+end
+
 """
     write(f::ICSVBase, filename) -> filename
 
