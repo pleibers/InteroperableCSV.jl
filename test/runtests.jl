@@ -1,4 +1,4 @@
-using InteroperableCSVCSV
+using InteroperableCSV
 using Test
 using DataFrames
 using Dates
