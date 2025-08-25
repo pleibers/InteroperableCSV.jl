@@ -18,7 +18,7 @@ API overview
 
 Minimal example
 ```julia
-using iCSV, DataFrames, Dates
+using InteroperableCSV, DataFrames, Dates
 md   = MetaDataSection(field_delimiter=",", geometry="POINT(600000 200000)", srid="EPSG:2056")
 flds = FieldsSection(fields=["timestamp","a","b"]) 
 geom = Geometry(md.geometry, md.srid)
@@ -29,7 +29,7 @@ g = read("out.icsv")
 A = todimarray(g)
 ```
 """
-module iCSV
+module InteroperableCSV
  
 # Write your package code here.
  

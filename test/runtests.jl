@@ -1,4 +1,4 @@
-using iCSV
+using InteroperableCSVCSV
 using Test
 using DataFrames
 using Dates
@@ -74,12 +74,12 @@ end
     fields_section = FieldsSection(;fields...)
     geometry = Geometry(metadata[:geometry], metadata[:srid])
     f = ICSVBase(meta_section, fields_section, geometry, df)
-    iCSV.write(f, file)
+    InteroperableCSV.write(f, file)
 
-    g = iCSV.read(file)
+    g = InteroperableCSV.read(file)
     @test g isa ICSVBase
-    @test size(iCSV.todataframe(g)) == size(df)
-    @test names(iCSV.todataframe(g)) == names(df)
+    @test size(InteroperableCSV.todataframe(g)) == size(df)
+    @test names(InteroperableCSV.todataframe(g)) == names(df)
     @test !any(ismissing, g.data.timestamp)
     @test all(g.data.a .== df.a)
     @test all(g.data.b .== df.b)
@@ -89,7 +89,7 @@ end
     epsg = g.geolocation.epsg
     @test loc.x == 7.0 && loc.y == 8.0 && loc.z == 9.0 && epsg == 2056
 
-    A = iCSV.todimarray(g)
+    A = InteroperableCSV.todimarray(g)
     @test size(A) == (nrow(df), 2) # drop timestamp column
 end
 
@@ -126,8 +126,8 @@ end
         "3,4",
     ]
     write_manual_timeseries(file1; fields="a,b", body_lines=body1)
-    q1 = iCSV.read(file1)
-    @test q1 isa iCSV.ICSV2DTimeseries
+    q1 = InteroperableCSV.read(file1)
+    @test q1 isa InteroperableCSV.ICSV2DTimeseries
     @test length(q1.dates) == 1
     @test Symbol.(names(q1.data[q1.dates[1]])) == [:a,:b]
     @test all(q1.data[q1.dates[1]][!, :a] .== [1,3])
@@ -142,7 +142,7 @@ end
         "3,4",
     ]
     write_manual_timeseries(file2; fields="a,b", body_lines=body2)
-    @test_throws ArgumentError iCSV.read(file2)
+    @test_throws ArgumentError InteroperableCSV.read(file2)
 
     # 3) Blank lines inside blocks are ignored
     file3 = joinpath(tmp, "blank_lines_ok.icsv")
@@ -158,7 +158,7 @@ end
         "",
     ]
     write_manual_timeseries(file3; fields="a,b", body_lines=body3)
-    q3 = iCSV.read(file3)
+    q3 = InteroperableCSV.read(file3)
     @test length(q3.dates) == 2
     @test nrow(q3.data[q3.dates[1]]) == 2
     @test nrow(q3.data[q3.dates[2]]) == 1
@@ -169,7 +169,7 @@ end
         "1,2",
     ]
     write_manual_timeseries(file4; fields="a,b", body_lines=body4)
-    @test_throws ArgumentError iCSV.read(file4)
+    @test_throws ArgumentError InteroperableCSV.read(file4)
 
     # 5) Column mismatch should error
     file5 = joinpath(tmp, "mismatch_columns.icsv")
@@ -178,7 +178,7 @@ end
         "1,2",
     ]
     write_manual_timeseries(file5; fields="a,b,c", body_lines=body5)
-    @test_throws ArgumentError iCSV.read(file5)
+    @test_throws ArgumentError InteroperableCSV.read(file5)
 end
 
 @testset "Enhanced DimArray options" begin
@@ -197,11 +197,11 @@ end
     fields_section = FieldsSection(;fields...)
     geometry = Geometry(metadata[:geometry], metadata[:srid])
     p = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1, df2], [d1,d2])
-    A = iCSV.todimarray(p)
+    A = InteroperableCSV.todimarray(p)
     @test size(A) == (3, 2, 2)
     @test DimensionalData.dims(A)[1] isa DimensionalData.Y
     # idxcol override with missing symbol should still fall back
-    A2 = iCSV.todimarray(p; idxcol=:layer_index)
+    A2 = InteroperableCSV.todimarray(p; idxcol=:layer_index)
     @test DimensionalData.dims(A2)[1] isa DimensionalData.Y
 
     # drop_non_numeric flag behavior for 2DTIMESERIES
@@ -217,9 +217,9 @@ end
     fields_section = FieldsSection(;fields...)
     geometry = Geometry(metadata[:geometry], metadata[:srid])
     p2 = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1b, df2b], [d1,d2])
-    A3 = iCSV.todimarray(p2) # default drop_non_numeric=true
+    A3 = InteroperableCSV.todimarray(p2) # default drop_non_numeric=true
     @test size(A3) == (3, 1, 2) # only numeric field kept
-    A4 = iCSV.todimarray(p2; drop_non_numeric=false)
+    A4 = InteroperableCSV.todimarray(p2; drop_non_numeric=false)
     @test size(A4) == (3, 2, 2) # numeric + string fields
 
     # drop_non_numeric for ICSVBase
@@ -235,9 +235,9 @@ end
     fields_section = FieldsSection(;fields...)
     geometry = Geometry(metadata[:geometry], metadata[:srid])
     f = ICSVBase(meta_section, fields_section, geometry,dff)
-    A5 = iCSV.todimarray(f) # drop non-numeric
+    A5 = InteroperableCSV.todimarray(f) # drop non-numeric
     @test size(A5) == (3, 1)
-    A6 = iCSV.todimarray(f; drop_non_numeric=false)
+    A6 = InteroperableCSV.todimarray(f; drop_non_numeric=false)
     @test size(A6) == (3, 3)
 end
 
@@ -259,35 +259,35 @@ end
     fields_section = FieldsSection(;fields...)
     geometry = Geometry(metadata[:geometry], metadata[:srid])
     p = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1, df2], [d1,d2])
-    iCSV.write(p, file)
+    InteroperableCSV.write(p, file)
 
-    q = iCSV.read(file)
+    q = InteroperableCSV.read(file)
     @test q isa ICSV2DTimeseries
     @test length(q.dates) == 2
-    A = iCSV.todimarray(q)
+    A = InteroperableCSV.todimarray(q)
     @test size(A) == (3, 2, 2) # layers, fields, time
-    df_long = iCSV.todataframe(q)
+    df_long = InteroperableCSV.todataframe(q)
     @test :time in Symbol.(names(df_long))
     @test length(unique(df_long[!, "time"])) == 2
 
     # append a timepoint
     d3 = DateTime(2024,1,3,10)
     df3 = DataFrame(layer_index = 1:3, var1 = [2.0,3.0,4.0], var2 = [12.0, 22.0, 32.0])
-    iCSV.append_timepoint(file, d3, df3; field_delimiter=",")
-    r = iCSV.read(file)
+    InteroperableCSV.append_timepoint(file, d3, df3; field_delimiter=",")
+    r = InteroperableCSV.read(file)
     @test length(r.dates) == 3
 
     # append matrix
     d4 = DateTime(2024,1,4,10)
     mat4 = hcat(collect(1:3), [2.5,3.5,4.5], [12.5, 22.5, 32.5])
-    iCSV.append_timepoint(file, d4, mat4; field_delimiter=",")
-    r2 = iCSV.read(file)
+    InteroperableCSV.append_timepoint(file, d4, mat4; field_delimiter=",")
+    r2 = InteroperableCSV.read(file)
     @test length(r2.dates) == 4
 
     # append dict (Symbol keys)
     d5 = DateTime(2024,1,5,10)
     dict5 = Dict(:layer_index=>1:2, :var1=>[3.0,4.0], :var2=>[13.0, 23.0])
-    iCSV.append_timepoint(file, d5, dict5; field_delimiter=",")
-    r3 = iCSV.read(file)
+    InteroperableCSV.append_timepoint(file, d5, dict5; field_delimiter=",")
+    r3 = InteroperableCSV.read(file)
     @test length(r3.dates) == 5
 end

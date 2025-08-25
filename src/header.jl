@@ -12,7 +12,7 @@ A simple 2D/3D point location used in iCSV headers.
 
 Examples
 ```julia
-julia> using iCSV
+julia> using InteroperableCSV
 julia> Loc(x=600000.0, y=200000.0)
 Location: (X: 600000.0, Y: 200000.0)
 
@@ -53,7 +53,7 @@ Geolocation metadata for an iCSV file.
 
 Examples
 ```julia
-julia> using iCSV
+julia> using InteroperableCSV
 julia> Geometry("POINT(600000 200000)", "EPSG:2056")
 Geolocation (EPSG 2056) : Location: (X: 600000.0, Y: 200000.0)
 

@@ -1,4 +1,4 @@
-# iCSV
+# InteroperableCSV
 
 [![CI](https://github.com/pleibers/iCSV.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/pleibers/iCSV.jl/actions/workflows/CI.yml) [![codecov](https://codecov.io/gh/pleibers/iCSV.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/pleibers/iCSV.jl) ![Static Badge](https://img.shields.io/badge/License-MIT-blue?link=https%3A%2F%2Fgithub.com%2Fpleibers%2FiCSV.jl%2Fblob%2Fmain%2FLICENSE)
 
@@ -11,7 +11,7 @@
 ## Installation
 
 ```julia
-julia> ] add iCSV
+julia> ] add InteroperableCSV
 ```
 
 Requires Julia 1.9+ (see `Project.toml`).
@@ -40,7 +40,7 @@ See docstrings for details: `?MetaDataSection`, `?FieldsSection`, `?Geometry`, `
 ### Standard iCSV (single table)
 
 ```julia
-using iCSV, DataFrames, Dates
+using InteroperableCSV, DataFrames, Dates
 
 md   = MetaDataSection(field_delimiter=",", geometry="POINT(600000 200000)", srid="EPSG:2056")
 flds = FieldsSection(fields=["timestamp","a","b"]) 
@@ -63,7 +63,7 @@ Notes:
 ### 2DTIMESERIES (per-date blocks)
 
 ```julia
-using iCSV, DataFrames, Dates
+using InteroperableCSV, DataFrames, Dates
 
 d1 = DateTime(2024,1,1,10)
 d2 = DateTime(2024,1,2,10)
