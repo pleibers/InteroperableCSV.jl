@@ -18,6 +18,7 @@ Requires Julia 1.9+ (see `Project.toml`).
 
 ## Format Overview
 
+A full specification for the format can be found [here](https://git-pages.wsl.ch/envidat/icsv/)
 An iCSV file consists of a first line, followed by three header sections.
 
 - Standard iCSV:

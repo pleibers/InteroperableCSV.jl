@@ -97,7 +97,7 @@ end
     tmp = mktempdir()
     function write_manual_timeseries(path::AbstractString; meta=Dict("field_delimiter"=>",","geometry"=>"POINT(1 2)","srid"=>"EPSG:2056"), fields::AbstractString="a,b", body_lines::Vector{String})
         open(path, "w") do io
-            println(io, iCSV.FIRSTLINES_2DTIMESERIES[end])
+            println(io, InteroperableCSV.FIRSTLINES_2DTIMESERIES[end])
             println(io, "# [METADATA]")
             for (k,v) in meta
                 println(io, "# $(k) = $(v)")
