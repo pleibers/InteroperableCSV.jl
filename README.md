@@ -1,6 +1,6 @@
 # InteroperableCSV
 
-[![CI](https://github.com/pleibers/iCSV.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/pleibers/iCSV.jl/actions/workflows/CI.yml) [![codecov](https://codecov.io/gh/pleibers/iCSV.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/pleibers/iCSV.jl) ![Static Badge](https://img.shields.io/badge/License-MIT-blue?link=https%3A%2F%2Fgithub.com%2Fpleibers%2FiCSV.jl%2Fblob%2Fmain%2FLICENSE)
+[![CI](https://github.com/pleibers/iCSV.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/pleibers/iCSV.jl/actions/workflows/CI.yml) ![Static Badge](https://img.shields.io/badge/License-MIT-blue?link=https%3A%2F%2Fgithub.com%2Fpleibers%2FiCSV.jl%2Fblob%2Fmain%2FLICENSE)
 
 > Lightweight reader/writer for the iCSV file format in Julia, including the 2DTIMESERIES application profile. Converts to DataFrames and DimensionalData arrays.
 
