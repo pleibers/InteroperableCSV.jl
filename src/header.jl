@@ -204,6 +204,28 @@ struct RecommendedMetadata{SID <: Union{String,Nothing}, NO <: Union{Float64,Int
 end
 Base.isempty(rec::RecommendedMetadata) = (rec.station_id === nothing && rec.nodata === nothing && rec.timezone === nothing && rec.doi === nothing && rec.timestamp_meaning === nothing)
 function RecommendedMetadata(; station_id=nothing, nodata=nothing, timezone=nothing, doi=nothing, timestamp_meaning=nothing, kwargs...)
+    if typeof(nodata) <: AbstractString
+        try
+            if occursin(".", nodata)
+                nodata = parse(Float64, nodata)
+            else
+                nodata = parse(Int, nodata)
+            end            
+        catch
+            @warn "Invalid nodata value: $(nodata), expected Int or Float"
+        end
+    end
+    if typeof(timezone) <: AbstractString
+        try
+            if occursin(".", timezone)
+                timezone = parse(Float64, timezone)
+            else
+                timezone = parse(Int, timezone)
+            end            
+        catch
+            @warn "Invalid timezone value: $(timezone), expected Int or Float"
+        end
+    end
     return RecommendedMetadata(station_id, nodata, timezone, doi, timestamp_meaning)
 end
 
