@@ -91,11 +91,14 @@ Internal: parse `"EPSG:XXXX"` strings from the [METADATA] section into an intege
 Used by [`Geometry(::AbstractString, ::AbstractString)`](@ref).
 """
 function parse_srid(srid::String)
-    try 
-        parts = split(srid, ":")
-        return parse(Int, parts[end])
-    catch
+    parts = split(srid, ":")
+    if length(parts) != 2 || uppercase(parts[1]) != "EPSG"
         throw(ArgumentError("Invalid SRID: $(srid), expected format: EPSG:XXXX"))
+    end
+    try 
+        return parse(Int, parts[2])
+    catch
+        throw(ArgumentError("Invalid SRID: $(srid), expected format: EPSG:XXXX with numeric code"))
     end
 end
 
@@ -108,20 +111,36 @@ Used by [`Geometry(::AbstractString, ::AbstractString)`](@ref).
 """
 function parse_location(geometry::String)
     if occursin("POINTZ", geometry)
-        content = split(split(geometry, "(")[2], ")")[1]
-        vals = split(content, " ")
-        length(vals) == 3 || throw(ArgumentError("Invalid POINTZ geometry"))
-        x = parse(Float64, vals[1])
-        y = parse(Float64, vals[2])
-        z = parse(Float64, vals[3])
-        return Loc(x, y, z), nothing
+        try
+            content = split(split(geometry, "(")[2], ")")[1]
+            vals = split(content, " ")
+            length(vals) == 3 || throw(ArgumentError("Invalid POINTZ geometry: expected 3 coordinates"))
+            x = parse(Float64, vals[1])
+            y = parse(Float64, vals[2])
+            z = parse(Float64, vals[3])
+            return Loc(x, y, z), nothing
+        catch e
+            if e isa ArgumentError
+                rethrow(e)
+            else
+                throw(ArgumentError("Invalid POINTZ geometry: $(geometry)"))
+            end
+        end
     elseif occursin("POINT", geometry)
-        content = split(split(geometry, "(")[2], ")")[1]
-        vals = split(content, " ")
-        length(vals) == 2 || throw(ArgumentError("Invalid POINT geometry"))
-        x = parse(Float64, vals[1])
-        y = parse(Float64, vals[2])
-        return Loc(x, y, nothing), nothing
+        try
+            content = split(split(geometry, "(")[2], ")")[1]
+            vals = split(content, " ")
+            length(vals) == 2 || throw(ArgumentError("Invalid POINT geometry: expected 2 coordinates"))
+            x = parse(Float64, vals[1])
+            y = parse(Float64, vals[2])
+            return Loc(x, y, nothing), nothing
+        catch e
+            if e isa ArgumentError
+                rethrow(e)
+            else
+                throw(ArgumentError("Invalid POINT geometry: $(geometry)"))
+            end
+        end
     else
         @info "Using geometry string $geometry as column name for location, unknown WKTZ string"
         return nothing, geometry
@@ -181,6 +200,8 @@ function RequiredMetadata(;field_delimiter::AbstractString, geometry::Union{Abst
     return RequiredMetadata(String(field_delimiter), geometry_string, srid_string)
 end
 
+Base.keys(req::RequiredMetadata) = (:field_delimiter, :geometry, :srid)
+
 """
     RecommendedMetadata(; station_id=nothing, nodata=nothing, timezone=nothing, doi=nothing, timestamp_meaning=nothing)
 
@@ -201,32 +222,47 @@ struct RecommendedMetadata{SID <: Union{String,Nothing}, NO <: Union{Float64,Int
     timezone::TZ
     doi::DOI
     timestamp_meaning::TM
+
+    function RecommendedMetadata(station_id, nodata, timezone, doi, timestamp_meaning)
+        station_id = parse_string_field(station_id)
+        nodata = parse_nodata(nodata)
+        timezone = parse_timezone(timezone)
+        doi = parse_string_field(doi)
+        timestamp_meaning = parse_string_field(timestamp_meaning)
+        return new{typeof(station_id), typeof(nodata), typeof(timezone), typeof(doi), typeof(timestamp_meaning)}(station_id, nodata, timezone, doi, timestamp_meaning)
+    end
 end
+
+RecommendedMetadata(;station_id=nothing, nodata=nothing, timezone=nothing, doi=nothing, timestamp_meaning=nothing, kwawrgs...) = RecommendedMetadata(station_id, nodata, timezone, doi, timestamp_meaning)
+
+Base.keys(rec::RecommendedMetadata) = (:station_id, :nodata, :timezone, :doi, :timestamp_meaning)
+
 Base.isempty(rec::RecommendedMetadata) = (rec.station_id === nothing && rec.nodata === nothing && rec.timezone === nothing && rec.doi === nothing && rec.timestamp_meaning === nothing)
-function RecommendedMetadata(; station_id=nothing, nodata=nothing, timezone=nothing, doi=nothing, timestamp_meaning=nothing, kwargs...)
-    if typeof(nodata) <: AbstractString
-        try
-            if occursin(".", nodata)
-                nodata = parse(Float64, nodata)
-            else
-                nodata = parse(Int, nodata)
-            end            
-        catch
-            @warn "Invalid nodata value: $(nodata), expected Int or Float"
-        end
+
+parse_string_field(field::Nothing) = field
+parse_string_field(field::AbstractString) = String(field)
+parse_string_field(field) = throw(ArgumentError("Expected Nothing or AbstractString, got $(typeof(field))"))
+
+parse_timezone(tz::Union{Nothing, Real}) = tz
+function parse_timezone(tz::AbstractString)
+    try
+        if occursin(".", tz)
+            return parse(Float64, tz)
+        else
+            return parse(Int, tz)
+        end            
+    catch
+        @warn "Invalid timezone value: $(tz), expected Int or Float"
     end
-    if typeof(timezone) <: AbstractString
-        try
-            if occursin(".", timezone)
-                timezone = parse(Float64, timezone)
-            else
-                timezone = parse(Int, timezone)
-            end            
-        catch
-            @warn "Invalid timezone value: $(timezone), expected Int or Float"
-        end
-    end
-    return RecommendedMetadata(station_id, nodata, timezone, doi, timestamp_meaning)
+    return String(tz)
+end
+parse_nodata(nodata::Union{Nothing, Real}) = nodata
+function parse_nodata(nodata::AbstractString)
+    if occursin(".", nodata)
+        return parse(Float64, nodata)
+    else
+        return parse(Int, nodata)
+    end            
 end
 
 function _pop_from_metadata_kwargs!(kwargs::Dict{Symbol,S}) where S <: Any

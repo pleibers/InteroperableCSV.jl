@@ -291,3 +291,171 @@ end
     r3 = InteroperableCSV.read(file)
     @test length(r3.dates) == 5
 end
+
+@testset "Metadata parsing from strings" begin
+    # Test that metadata fields are correctly parsed from string values (as they come from files)
+    # This was missing and caused real-world files to fail
+    
+    # nodata as string -> numeric
+    md1 = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056", nodata="-999")
+    @test md1.nodata === -999
+    @test md1.nodata isa Int
+    
+    md2 = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056", nodata="-999.0")
+    @test md2.nodata === -999.0
+    @test md2.nodata isa Float64
+    
+    # timezone as string -> numeric
+    md3 = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056", timezone="1")
+    @test md3.timezone === 1
+    @test md3.timezone isa Int
+    
+    md4 = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056", timezone="1.5")
+    @test md4.timezone === 1.5
+    @test md4.timezone isa Float64
+    
+    # timezone as string name (non-numeric)
+    md5 = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056", timezone="UTC")
+    @test md5.timezone == "UTC"
+    @test md5.timezone isa String
+    
+    # station_id and other string fields
+    md6 = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056", station_id="TEST123")
+    @test md6.station_id == "TEST123"
+    @test md6.station_id isa String
+end
+
+@testset "Read/write with metadata parsing" begin
+    # Test round-trip with metadata that needs parsing
+    tmp = mktempdir()
+    file = joinpath(tmp, "metadata_test.icsv")
+    
+    ts = [DateTime(2024,1,1) + Day(i-1) for i in 1:3]
+    df = DataFrame(timestamp = ts, a = [1, 2, -999], b = [10, 20, 30])
+    
+    metadata = Dict{Symbol, String}()
+    metadata[:field_delimiter] = ","
+    metadata[:geometry] = "POINT(600000 200000)"
+    metadata[:srid] = "EPSG:2056"
+    metadata[:nodata] = "-999"  # String value as it would come from file
+    metadata[:station_id] = "SITE01"
+    metadata[:timezone] = "1.0"
+    
+    fields = Dict{Symbol, Vector{String}}()
+    fields[:fields] = ["timestamp","a","b"]
+    
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
+    
+    f = ICSVBase(meta_section, fields_section, geometry, df)
+    InteroperableCSV.write(f, file)
+    
+    # Read back and verify metadata was parsed correctly
+    g = InteroperableCSV.read(file)
+    @test g.metadata.nodata === -999
+    @test g.metadata.nodata isa Int
+    @test g.metadata.station_id == "SITE01"
+    @test g.metadata.timezone === 1.0
+    @test g.metadata.timezone isa Float64
+end
+
+@testset "Metadata edge cases and errors" begin
+    # Missing required fields should error
+    @test_throws ArgumentError MetaDataSection(field_delimiter=",", geometry="POINT(1 2)")
+    @test_throws ArgumentError MetaDataSection(field_delimiter=",", srid="EPSG:2056")
+    @test_throws ArgumentError MetaDataSection(geometry="POINT(1 2)", srid="EPSG:2056")
+    
+    # Invalid SRID format - validation happens at Geometry construction
+    @test_throws ArgumentError Geometry("POINT(1 2)", "invalid")
+    @test_throws ArgumentError Geometry("POINT(1 2)", "EPSG:")
+    @test_throws ArgumentError Geometry("POINT(1 2)", "2056")
+    
+    # Invalid geometry format - validation happens at Geometry construction
+    @test_throws ArgumentError Geometry("POINT(1)", "EPSG:2056")  # only 1 coordinate
+    @test_throws ArgumentError Geometry("POINTZ(1 2)", "EPSG:2056")  # POINTZ needs 3 coords
+    @test_throws ArgumentError Geometry("POINT(a b)", "EPSG:2056")  # non-numeric coords
+    @test_throws ArgumentError Geometry("POINTZ(1 2 c)", "EPSG:2056")  # non-numeric z
+    
+    # Invalid field types for parse_string_field
+    @test_throws ArgumentError InteroperableCSV.parse_string_field(123)
+    @test_throws ArgumentError InteroperableCSV.parse_string_field(1.5)
+    @test_throws ArgumentError InteroperableCSV.parse_string_field(true)
+    
+    # Valid edge cases that should work
+    md1 = MetaDataSection(field_delimiter=",", geometry="POINT(0 0)", srid="EPSG:4326")
+    @test md1.geometry == "POINT(0 0)"
+    geom1 = Geometry(md1.geometry, md1.srid)
+    @test geom1.epsg == 4326
+    
+    md2 = MetaDataSection(field_delimiter=",", geometry="POINTZ(-180.0 -90.0 -1000.0)", srid="EPSG:4326")
+    @test md2.geometry == "POINTZ(-180.0 -90.0 -1000.0)"
+    geom2 = Geometry(md2.geometry, md2.srid)
+    @test geom2.location.x == -180.0
+    @test geom2.location.y == -90.0
+    @test geom2.location.z == -1000.0
+    
+    # Empty/nothing values for optional fields should work
+    md3 = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056", nodata=nothing)
+    @test md3.nodata === nothing
+    
+    md4 = MetaDataSection(field_delimiter=",", geometry="POINT(1 2)", srid="EPSG:2056", timezone=nothing)
+    @test md4.timezone === nothing
+end
+
+@testset "Fields section edge cases and errors" begin
+    # Field validation errors
+    fields = FieldsSection(fields=["a", "b", "c"])
+    @test_throws ArgumentError InteroperableCSV.check_validity(fields, 2)  # mismatch: 3 fields, 2 columns
+    @test_throws ArgumentError InteroperableCSV.check_validity(fields, 4)  # mismatch: 3 fields, 4 columns
+    @test InteroperableCSV.check_validity(fields, 3)  # correct match
+    
+    # Recommended fields with wrong length should error
+    fields2 = FieldsSection(fields=["a", "b"], units=["m", "kg", "s"])  # 2 fields, 3 units
+    @test_throws ArgumentError InteroperableCSV.check_validity(fields2, 2)
+    
+    # Valid: empty recommended fields
+    fields3 = FieldsSection(fields=["a", "b"], units=String[])
+    @test InteroperableCSV.check_validity(fields3, 2)
+    
+    # Valid: matching recommended fields
+    fields4 = FieldsSection(fields=["a", "b"], units=["m", "kg"])
+    @test InteroperableCSV.check_validity(fields4, 2)
+end
+
+@testset "Data coercion edge cases and errors" begin
+    metadata = Dict{Symbol, String}(:field_delimiter => ",", :geometry => "POINT(1 2)", :srid => "EPSG:2056")
+    fields = Dict{Symbol, Vector{String}}(:fields => ["a", "b"])
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
+    
+    # Matrix with wrong number of columns
+    mat_wrong = hcat([1, 2, 3])  # 1 column, but 2 fields declared
+    @test_throws ArgumentError ICSVBase(meta_section, fields_section, geometry, mat_wrong)
+    
+    # Dict missing required columns
+    dict_missing = Dict(:a => [1, 2, 3])  # missing column 'b'
+    @test_throws ArgumentError ICSVBase(meta_section, fields_section, geometry, dict_missing)
+    
+    # Dict with mismatched column lengths
+    dict_mismatch = Dict(:a => [1, 2, 3], :b => [4, 5])  # different lengths
+    @test_throws ArgumentError ICSVBase(meta_section, fields_section, geometry, dict_mismatch)
+    
+    # Dict with non-vector values
+    dict_nonvec = Dict(:a => 123, :b => [4, 5, 6])
+    @test_throws ArgumentError ICSVBase(meta_section, fields_section, geometry, dict_nonvec)
+    
+    # Valid edge case: empty DataFrame
+    df_empty = DataFrame(a=Int[], b=Int[])
+    f_empty = ICSVBase(meta_section, fields_section, geometry, df_empty)
+    @test nrow(f_empty.data) == 0
+end
+
+@testset "Read Real World File" begin
+    file = InteroperableCSV.read("MST96.icsv")
+    @test size(file.data) == (21985, 15)
+    @test file.metadata.station_id == "MST96"
+    @test file.metadata.geometry == "POINTZ(9.81 46.831 2540.0)"
+    @test file.metadata.srid == "EPSG:4326"
+end
