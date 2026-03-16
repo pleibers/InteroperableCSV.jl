@@ -3,10 +3,6 @@ using Test
 using DataFrames
 using Dates
 using DimensionalData
-metadata = Dict{Symbol, String}(:field_delimiter => ",", :geometry => "POINT(1 2)", :srid => "EPSG:2056")
-fields = Dict{Symbol, Vector{String}}(:fields => ["timestamp","a","b"]) 
-meta_section = MetaDataSection(;metadata...)
-    
 @testset "Flexible constructors: ICSVBase" begin
     metadata = Dict{Symbol, String}(:field_delimiter => ",", :geometry => "POINT(1 2)", :srid => "EPSG:2056")
     fields = Dict{Symbol, Vector{String}}(:fields => ["timestamp","a","b"]) 
