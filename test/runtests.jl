@@ -3,7 +3,10 @@ using Test
 using DataFrames
 using Dates
 using DimensionalData
-
+metadata = Dict{Symbol, String}(:field_delimiter => ",", :geometry => "POINT(1 2)", :srid => "EPSG:2056")
+fields = Dict{Symbol, Vector{String}}(:fields => ["timestamp","a","b"]) 
+meta_section = MetaDataSection(;metadata...)
+    
 @testset "Flexible constructors: ICSVBase" begin
     metadata = Dict{Symbol, String}(:field_delimiter => ",", :geometry => "POINT(1 2)", :srid => "EPSG:2056")
     fields = Dict{Symbol, Vector{String}}(:fields => ["timestamp","a","b"]) 
@@ -450,6 +453,131 @@ end
     df_empty = DataFrame(a=Int[], b=Int[])
     f_empty = ICSVBase(meta_section, fields_section, geometry, df_empty)
     @test nrow(f_empty.data) == 0
+end
+
+@testset "Missing value parsing (nodata)" begin
+    tmp = mktempdir()
+    file = joinpath(tmp, "missing_test.icsv")
+    
+    # Test 1: Write and read with missing values using nodata=-999
+    ts = [DateTime(2024,1,1) + Day(i-1) for i in 1:5]
+    df = DataFrame(timestamp = ts, a = [1, missing, 3, missing, 5], b = [10, 20, missing, 40, 50])
+    
+    metadata = Dict{Symbol, String}()
+    metadata[:field_delimiter] = ","
+    metadata[:geometry] = "POINT(600000 200000)"
+    metadata[:srid] = "EPSG:2056"
+    metadata[:nodata] = "-999"
+    
+    fields = Dict{Symbol, Vector{String}}()
+    fields[:fields] = ["timestamp","a","b"]
+    
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
+    
+    f = ICSVBase(meta_section, fields_section, geometry, df)
+    InteroperableCSV.write(f, file)
+    
+    # Read back and verify missing values are parsed correctly
+    g = InteroperableCSV.read(file)
+    @test g.metadata.nodata === -999
+    @test ismissing(g.data.a[2])
+    @test ismissing(g.data.a[4])
+    @test ismissing(g.data.b[3])
+    @test g.data.a[1] == 1
+    @test g.data.a[3] == 3
+    @test g.data.a[5] == 5
+    @test g.data.b[1] == 10
+    @test g.data.b[2] == 20
+    
+    # Test 2: Write and read with float nodata
+    file2 = joinpath(tmp, "missing_float.icsv")
+    df2 = DataFrame(timestamp = ts, x = [1.5, missing, 3.5, 4.5, missing], y = [10.0, 20.0, 30.0, missing, 50.0])
+    
+    metadata2 = Dict{Symbol, String}()
+    metadata2[:field_delimiter] = ","
+    metadata2[:geometry] = "POINT(1 2)"
+    metadata2[:srid] = "EPSG:2056"
+    metadata2[:nodata] = "-999.0"
+    
+    fields2 = Dict{Symbol, Vector{String}}()
+    fields2[:fields] = ["timestamp","x","y"]
+    
+    meta_section2 = MetaDataSection(;metadata2...)
+    fields_section2 = FieldsSection(;fields2...)
+    geometry2 = Geometry(metadata2[:geometry], metadata2[:srid])
+    
+    f2 = ICSVBase(meta_section2, fields_section2, geometry2, df2)
+    InteroperableCSV.write(f2, file2)
+    
+    g2 = InteroperableCSV.read(file2)
+    @test g2.metadata.nodata === -999.0
+    @test ismissing(g2.data.x[2])
+    @test ismissing(g2.data.x[5])
+    @test ismissing(g2.data.y[4])
+    @test g2.data.x[1] == 1.5
+    @test g2.data.y[1] == 10.0
+    
+    # Test 3: No nodata specified - missing values written as empty string
+    file3 = joinpath(tmp, "missing_nospec.icsv")
+    df3 = DataFrame(timestamp = ts[1:3], a = [1, missing, 3], b = [10, 20, missing])
+    
+    metadata3 = Dict{Symbol, String}()
+    metadata3[:field_delimiter] = ","
+    metadata3[:geometry] = "POINT(1 2)"
+    metadata3[:srid] = "EPSG:2056"
+    
+    fields3 = Dict{Symbol, Vector{String}}()
+    fields3[:fields] = ["timestamp","a","b"]
+    
+    meta_section3 = MetaDataSection(;metadata3...)
+    fields_section3 = FieldsSection(;fields3...)
+    geometry3 = Geometry(metadata3[:geometry], metadata3[:srid])
+    
+    f3 = ICSVBase(meta_section3, fields_section3, geometry3, df3)
+    InteroperableCSV.write(f3, file3)
+    
+    g3 = InteroperableCSV.read(file3)
+    @test g3.metadata.nodata === nothing
+    @test ismissing(g3.data.a[2])
+    @test ismissing(g3.data.b[3])
+end
+
+@testset "Missing values in 2DTIMESERIES" begin
+    tmp = mktempdir()
+    file = joinpath(tmp, "timeseries_missing.icsv")
+    
+    d1 = DateTime(2024,1,1,10)
+    d2 = DateTime(2024,1,2,10)
+    df1 = DataFrame(layer_index = 1:3, var1 = [1.0, missing, 3.0], var2 = [10.0, 20.0, missing])
+    df2 = DataFrame(layer_index = 1:3, var1 = [missing, 2.5, 3.5], var2 = [15.0, missing, 35.0])
+    
+    metadata = Dict{Symbol, String}()
+    metadata[:field_delimiter] = ","
+    metadata[:geometry] = "POINT(600000 200000)"
+    metadata[:srid] = "EPSG:2056"
+    metadata[:nodata] = "-999.0"
+    
+    fields = Dict{Symbol, Vector{String}}()
+    fields[:fields] = ["layer_index","var1","var2"]
+    
+    meta_section = MetaDataSection(;metadata...)
+    fields_section = FieldsSection(;fields...)
+    geometry = Geometry(metadata[:geometry], metadata[:srid])
+    
+    p = ICSV2DTimeseries(meta_section, fields_section, geometry, [df1, df2], [d1,d2])
+    InteroperableCSV.write(p, file)
+    
+    q = InteroperableCSV.read(file)
+    @test q isa ICSV2DTimeseries
+    @test q.metadata.nodata === -999.0
+    @test ismissing(q.data[d1].var1[2])
+    @test ismissing(q.data[d1].var2[3])
+    @test ismissing(q.data[d2].var1[1])
+    @test ismissing(q.data[d2].var2[2])
+    @test q.data[d1].var1[1] == 1.0
+    @test q.data[d2].var1[2] == 2.5
 end
 
 @testset "Read Real World File" begin

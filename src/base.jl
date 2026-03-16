@@ -152,7 +152,9 @@ function write(f::ICSVBase, filename::AbstractString)
         end
         println(io, "# [DATA]")
     end
-    CSV.write(filename, f.data; append=true, header=false, delim=delimiter)
+    nodata = f.metadata.nodata
+    missing_string = isnothing(nodata) ? "" : string(nodata)
+    CSV.write(filename, f.data; append=true, header=false, delim=delimiter, missingstring=missing_string)
     return filename
 end
 
@@ -276,7 +278,9 @@ function read_icsv_base(filename::AbstractString)
         end
     end
     delim = meta_section.field_delimiter
-    df = DataFrame(CSV.File(filename; header=false, comment="#", delim=delim, skipto=skip_lines))
+    nodata = meta_section.nodata
+    missing_string = isnothing(nodata) ? "" : string(nodata)
+    df = DataFrame(CSV.File(filename; header=false, comment="#", delim=delim, skipto=skip_lines, missingstring=missing_string))
     check_validity(fields_section, size(df, 2))
     _update_columns!(df, fields_section)
     return ICSVBase(meta_section, fields_section, geometry, df)

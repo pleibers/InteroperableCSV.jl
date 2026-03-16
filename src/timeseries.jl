@@ -143,7 +143,9 @@ function write(f::ICSV2DTimeseries, filename::AbstractString)
         println(io, "# [DATA]")
         for d in f.dates
             println(io, "# [DATE=$(Dates.format(d, f.out_datefmt))]")
-            CSV.write(io, f.data[d]; append=true, header=false, delim=delimiter)
+            nodata = f.metadata.nodata
+            missing_string = isnothing(nodata) ? "" : string(nodata)
+            CSV.write(io, f.data[d]; append=true, header=false, delim=delimiter, missingstring=missing_string)
         end
     end
     return filename
@@ -158,13 +160,15 @@ Assumes the header has already been written and that `data` matches the declared
 Notes
 - `field_delimiter` must match `[METADATA].field_delimiter` of the target file.
 - `date_format` controls how the `[DATE=...]` marker is rendered; default is ISO-like.
+- `nodata` is used to replace missing values in the CSV output. (string or number)
 - This function does not validate column count or types against the file header.
 """
-function append_timepoint(filename::AbstractString, timestamp::DateTime, data::DataFrame; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS")
+function append_timepoint(filename::AbstractString, timestamp::DateTime, data::DataFrame; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS", nodata=nothing)
     open(filename, "a") do io
         println(io, "# [DATE=$(Dates.format(timestamp, date_format))]")
         delim = isempty(field_delimiter) ? ',' : field_delimiter[1]
-        CSV.write(io, data; append=true, header=false, delim=delim)
+        missing_string = isnothing(nodata) ? "" : string(nodata)
+        CSV.write(io, data; append=true, header=false, delim=delim, missingstring=missing_string)
     end
     return nothing
 end
@@ -179,9 +183,9 @@ mat = hcat(1:3, [2.5,3.5,4.5], [12.5, 22.5, 32.5])
 append_timepoint("file.icsv", DateTime(2024,1,4), mat; field_delimiter=",")
 ```
 """
-function append_timepoint(filename::AbstractString, timestamp::DateTime, data::AbstractMatrix; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS")
+function append_timepoint(filename::AbstractString, timestamp::DateTime, data::AbstractMatrix; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS", nodata=nothing)
     df = DataFrame(data, :auto)
-    return append_timepoint(filename, timestamp, df; field_delimiter=field_delimiter, date_format=date_format)
+    return append_timepoint(filename, timestamp, df; field_delimiter=field_delimiter, date_format=date_format, nodata=nodata)
 end
 
 """
@@ -194,11 +198,11 @@ dict = Dict(:layer_index=>1:2, :var1=>[3.0,4.0], :var2=>[13.0,23.0])
 append_timepoint("file.icsv", DateTime(2024,1,5), dict; field_delimiter=",")
 ```
 """
-function append_timepoint(filename::AbstractString, timestamp::DateTime, data::AbstractDict; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS")
+function append_timepoint(filename::AbstractString, timestamp::DateTime, data::AbstractDict; field_delimiter::AbstractString=",", date_format::DateFormat=dateformat"yyyy-mm-ddTHH:MM:SS", nodata=nothing)
     # We cannot access FieldsSection from file alone; assume user provides correct column order.
     # Convert by key order (stable iteration not guaranteed), so encourage OrderedDict if needed.
     df = DataFrame(data)
-    return append_timepoint(filename, timestamp, df; field_delimiter=field_delimiter, date_format=date_format)
+    return append_timepoint(filename, timestamp, df; field_delimiter=field_delimiter, date_format=date_format, nodata=nodata)
 end
 
 
@@ -418,7 +422,9 @@ function read_icsv_timeseries(filename::AbstractString, date_fmt::DateFormat = d
     # Single CSV pass over whole file; comments skipped
     delim_str = String(get_attribute(meta_section, "field_delimiter"))
     delim = isempty(delim_str) ? ',' : delim_str[1]
-    df_all = DataFrame(CSV.File(filename; header=false, comment="#", delim=delim, ignoreemptyrows=true))
+    nodata = meta_section.nodata
+    missing_string = isnothing(nodata) ? "" : string(nodata)
+    df_all = DataFrame(CSV.File(filename; header=false, comment="#", delim=delim, ignoreemptyrows=true, missingstring=missing_string))
 
     total_rows = sum(block_lengths)
     nrow(df_all) == total_rows || throw(ArgumentError("Data row count mismatch: expected $(total_rows) rows across $(length(dates)) dates, got $(nrow(df_all))"))
