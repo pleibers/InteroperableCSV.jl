@@ -486,7 +486,7 @@ function Base.show(io::IO, f::FieldsSection)
     out_msg = "Fields: $(f.fields)\n"
     if !isempty(f.recommended_fields)
         out_msg *= "\nRecommended Fields:\n"
-        out_msg *= join(["$k : $(v)" for (k,v) in f.recommended_fields if !isempty(v)], "\n")
+        out_msg *= join(["$k : $(getfield(f.recommended_fields, k))" for k in fieldnames(typeof(f.recommended_fields)) if !isempty(getfield(f.recommended_fields, k))], "\n")
     end
     if !isempty(f.other_fields)
         out_msg *= "\nOther Fields:\n"
