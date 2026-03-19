@@ -258,7 +258,7 @@ function parse_timezone(tz::AbstractString)
 end
 parse_nodata(nodata::Union{Nothing, Real}) = nodata
 function parse_nodata(nodata::AbstractString)
-    if occursin(".", nodata)
+    if occursin(".", nodata) || occursin("e", lowercase(nodata)) || occursin("E", nodata) || occursin("f", lowercase(nodata)) || occursin("nan", lowercase(nodata))
         return parse(Float64, nodata)
     else
         return parse(Int, nodata)
