@@ -576,6 +576,43 @@ end
     @test q.data[d2].var1[2] == 2.5
 end
 
+@testset "units_multiplier substring-to-Float conversion" begin
+    tmp = mktempdir()
+    file = joinpath(tmp, "units_multiplier.icsv")
+
+    # Write a file with units_multiplier in the FIELDS section
+    open(file, "w") do io
+        println(io, "# iCSV 1.0 UTF-8")
+        println(io, "# [METADATA]")
+        println(io, "# field_delimiter = ,")
+        println(io, "# geometry = POINT(600000 200000)")
+        println(io, "# srid = EPSG:2056")
+        println(io, "# [FIELDS]")
+        println(io, "# fields = timestamp,a,b")
+        println(io, "# units_multiplier = 1.0,0.001,100.0")
+        println(io, "# units = -,m,K")
+        println(io, "# [DATA]")
+        println(io, "2024-01-01T00:00:00,1,2")
+        println(io, "2024-01-02T00:00:00,3,4")
+    end
+
+    g = InteroperableCSV.read(file)
+    @test g isa ICSVBase
+    @test g.fields.recommended_fields.units_multiplier == [1.0, 0.001, 100.0]
+    @test g.fields.recommended_fields.units == ["-", "m", "K"]
+    @test all(g.data.a .== [1, 3])
+    @test all(g.data.b .== [2, 4])
+
+    # Also verify constructing RecommendedFields from string vectors directly
+    rf = InteroperableCSV.RecommendedFields(
+        units_multiplier=["2.5", "3.0"],
+        units=["m", "s"],
+        long_name=String[],
+        standard_name=String[]
+    )
+    @test rf.units_multiplier == [2.5, 3.0]
+end
+
 @testset "Read Real World File" begin
     file = InteroperableCSV.read("MST96.icsv")
     @test size(file.data) == (21985, 15)
