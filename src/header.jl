@@ -420,7 +420,13 @@ struct RecommendedFields
     standard_name::Vector{String}
 end
 function RecommendedFields(;units_multiplier=Float64[], units=String[], long_name=String[], standard_name=String[],kwargs...)
+    units_multiplier = _parse_units_multiplier(units_multiplier)
     return RecommendedFields(units_multiplier, String.(units), String.(long_name), String.(standard_name))
+end
+
+_parse_units_multiplier(v::Vector{Float64}) = v
+function _parse_units_multiplier(v::AbstractVector)
+    return parse.(Float64, v)
 end
 
 function Base.isempty(rec::RecommendedFields)
